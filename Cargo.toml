@@ -8,7 +8,7 @@ embassy-rp = ["dep:embassy-rp", "embassy-rp/rp2040"]
 rp2040-hal = ["dep:rp2040-hal"]
 
 [dependencies]
-dshot-encoder = { git = "https://github.com/peterkrull/dshot-encoder" }
+dshot-frame = "0.2.1"
 
 pio-proc = "0.2"
 pio = "0.2"

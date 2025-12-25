@@ -1,13 +1,14 @@
-use dshot_encoder as dshot;
-pub use super::DshotPioTrait;
+pub use super::{DshotPioTrait, DshotError, Telemetry, Frame, NormalDshot, Command};
 
 use embassy_rp::{
     pio::{ Instance, Pio, Config, PioPin, ShiftConfig, ShiftDirection::Left, InterruptHandler},
     Peripheral, interrupt::typelevel::Binding
 };
-#[allow(dead_code)]
+
+/// DShot PIO driver for Embassy
 pub struct DshotPio<'a, const N : usize, PIO : Instance> {
-    pio_instance: Pio<'a,PIO>,
+    pio_instance: Pio<'a, PIO>,
+    telemetry_enabled: bool,
 }
 
 
@@ -87,7 +88,10 @@ impl <'a,PIO: Instance> DshotPio<'a,1,PIO> {
         pio.sm0.set_enable(true);
 
         // Return struct of 1 configured DShot state machine
-        DshotPio { pio_instance : pio }
+        DshotPio {
+            pio_instance: pio,
+            telemetry_enabled: false,
+        }
     }
 }
 
@@ -114,7 +118,10 @@ impl <'a,PIO: Instance> DshotPio<'a,2,PIO> {
         pio.sm1.set_enable(true);
 
         // Return struct of 2 configured DShot state machines
-        DshotPio { pio_instance : pio }
+        DshotPio {
+            pio_instance: pio,
+            telemetry_enabled: false,
+        }
     }
 }
 
@@ -147,7 +154,10 @@ impl <'a,PIO: Instance> DshotPio<'a,3,PIO> {
         pio.sm2.set_enable(true);
         
         // Return struct of 3 configured DShot state machines
-        DshotPio { pio_instance : pio }
+        DshotPio {
+            pio_instance: pio,
+            telemetry_enabled: false,
+        }
     }
 }
 
@@ -186,7 +196,10 @@ impl <'a,PIO: Instance> DshotPio<'a,4,PIO> {
         pio.sm3.set_enable(true);
 
         // Return struct of 4 configured DShot state machines
-        DshotPio { pio_instance : pio }
+        DshotPio {
+            pio_instance: pio,
+            telemetry_enabled: false,
+        }
     }
 }
 
@@ -194,118 +207,264 @@ impl <'a,PIO: Instance> DshotPio<'a,4,PIO> {
 /// Implementing DshotPioTrait
 /// 
 
-impl <'d,PIO : Instance> super::DshotPioTrait<1> for DshotPio<'d,1,PIO> {
-    
-    /// Send any valid DShot value to the ESC.
-    fn command(&mut self, command: [u16; 1]) {
-        self.pio_instance.sm0.tx().push(command[0].min(dshot::THROTTLE_MAX) as u32);
-    }
-    
-    /// Set the direction of rotation for each motor
-    fn reverse(&mut self, reverse: [bool;1]) {
-        self.pio_instance.sm0.tx().push(dshot::reverse(reverse[0]) as u32);
+impl<'d, PIO: Instance> super::DshotPioTrait<1> for DshotPio<'d, 1, PIO> {
+    /// Send raw DShot command values (0-2047)
+    fn command(&mut self, command: [u16; 1]) -> Result<(), DshotError> {
+        // For raw commands 0-47, create command frames directly
+        if command[0] < 48 {
+            let frame = Frame::<NormalDshot>::command(
+                unsafe { core::mem::transmute(command[0] as u8) }, // Convert to Command enum
+                self.telemetry_enabled
+            );
+            self.pio_instance.sm0.tx().push(frame.inner() as u32);
+            Ok(())
+        } else {
+            // For values 48-2047, create as throttle (subtract 48)
+            let throttle = command[0].saturating_sub(48);
+            if throttle >= 2000 {
+                return Err(DshotError::InvalidThrottle);
+            }
+            let frame = Frame::<NormalDshot>::new(throttle, self.telemetry_enabled)
+                .ok_or(DshotError::InvalidThrottle)?;
+            self.pio_instance.sm0.tx().push(frame.inner() as u32);
+            Ok(())
+        }
     }
 
-    /// Set the throttle for each motor. All values are clamped between 48 and 2047
-    fn throttle_clamp(&mut self, throttle: [u16;1]) {
-        self.pio_instance.sm0.tx().push(dshot::throttle_clamp(throttle[0], false) as u32);
+    /// Set motor rotation direction
+    fn reverse(&mut self, reverse: [bool; 1]) {
+        let cmd = if reverse[0] {
+            Command::SpinDirectonReversed
+        } else {
+            Command::SpinDirectionNormal
+        };
+        let frame = Frame::<NormalDshot>::command(cmd, self.telemetry_enabled);
+        self.pio_instance.sm0.tx().push(frame.inner() as u32);
     }
 
-    /// Set the throttle for each motor to zero (DShot command 48)
+    /// Set throttle (0-1999), clamped and converted to DShot range (48-2047)
+    fn throttle_clamp(&mut self, throttle: [u16; 1]) -> Result<(), DshotError> {
+        let clamped = throttle[0].min(1999);
+        let frame = Frame::<NormalDshot>::new(clamped, self.telemetry_enabled)
+            .ok_or(DshotError::InvalidThrottle)?;
+        self.pio_instance.sm0.tx().push(frame.inner() as u32);
+        Ok(())
+    }
+
+    /// Set all motors to minimum throttle (zero)
     fn throttle_minimum(&mut self) {
-        self.pio_instance.sm0.tx().push(dshot::throttle_minimum(false) as u32);
+        let frame = Frame::<NormalDshot>::new(0, self.telemetry_enabled)
+            .expect("Zero throttle should always be valid");
+        self.pio_instance.sm0.tx().push(frame.inner() as u32);
+    }
+
+    /// Send a DShot command to all motors
+    fn send_command(&mut self, cmd: Command) {
+        let frame = Frame::<NormalDshot>::command(cmd, self.telemetry_enabled);
+        self.pio_instance.sm0.tx().push(frame.inner() as u32);
     }
 }
 
-impl <'d,PIO : Instance> super::DshotPioTrait<2> for DshotPio<'d,2,PIO> {
-    
-    /// Send any valid DShot value to the ESC.
-    fn command(&mut self, command: [u16; 2]) {
-        self.pio_instance.sm0.tx().push(command[0].min(dshot::THROTTLE_MAX) as u32);
-        self.pio_instance.sm0.tx().push(command[1].min(dshot::THROTTLE_MAX) as u32);
-    }
-    
-    /// Set the direction of rotation for each motor
-    fn reverse(&mut self, reverse: [bool;2]) {
-        self.pio_instance.sm0.tx().push(dshot::reverse(reverse[0]) as u32);
-        self.pio_instance.sm1.tx().push(dshot::reverse(reverse[1]) as u32);
+impl<'d, PIO: Instance> super::DshotPioTrait<2> for DshotPio<'d, 2, PIO> {
+    fn command(&mut self, command: [u16; 2]) -> Result<(), DshotError> {
+        for (i, &cmd) in command.iter().enumerate() {
+            let frame = if cmd < 48 {
+                Frame::<NormalDshot>::command(
+                    unsafe { core::mem::transmute(cmd as u8) },
+                    self.telemetry_enabled
+                )
+            } else {
+                let throttle = cmd.saturating_sub(48);
+                if throttle >= 2000 {
+                    return Err(DshotError::InvalidThrottle);
+                }
+                Frame::<NormalDshot>::new(throttle, self.telemetry_enabled)
+                    .ok_or(DshotError::InvalidThrottle)?
+            };
+            match i {
+                0 => self.pio_instance.sm0.tx().push(frame.inner() as u32),
+                1 => self.pio_instance.sm1.tx().push(frame.inner() as u32),
+                _ => unreachable!(),
+            }
+        }
+        Ok(())
     }
 
-    /// Set the throttle for each motor. All values are clamped between 48 and 2047
-    fn throttle_clamp(&mut self, throttle: [u16;2]) {
-        self.pio_instance.sm0.tx().push(dshot::throttle_clamp(throttle[0], false) as u32);
-        self.pio_instance.sm1.tx().push(dshot::throttle_clamp(throttle[1], false) as u32);
+    fn reverse(&mut self, reverse: [bool; 2]) {
+        let frames: [_; 2] = core::array::from_fn(|i| {
+            let cmd = if reverse[i] { Command::SpinDirectonReversed } else { Command::SpinDirectionNormal };
+            Frame::<NormalDshot>::command(cmd, self.telemetry_enabled)
+        });
+        self.pio_instance.sm0.tx().push(frames[0].inner() as u32);
+        self.pio_instance.sm1.tx().push(frames[1].inner() as u32);
     }
 
-    /// Set the throttle for each motor to zero (DShot command 48)
+    fn throttle_clamp(&mut self, throttle: [u16; 2]) -> Result<(), DshotError> {
+        for (i, &t) in throttle.iter().enumerate() {
+            let frame = Frame::<NormalDshot>::new(t.min(1999), self.telemetry_enabled)
+                .ok_or(DshotError::InvalidThrottle)?;
+            match i {
+                0 => self.pio_instance.sm0.tx().push(frame.inner() as u32),
+                1 => self.pio_instance.sm1.tx().push(frame.inner() as u32),
+                _ => unreachable!(),
+            }
+        }
+        Ok(())
+    }
+
     fn throttle_minimum(&mut self) {
-        self.pio_instance.sm0.tx().push(dshot::throttle_minimum(false) as u32);
-        self.pio_instance.sm1.tx().push(dshot::throttle_minimum(false) as u32);
+        let frame = Frame::<NormalDshot>::new(0, self.telemetry_enabled)
+            .expect("Zero throttle should always be valid");
+        self.pio_instance.sm0.tx().push(frame.inner() as u32);
+        self.pio_instance.sm1.tx().push(frame.inner() as u32);
+    }
+
+    fn send_command(&mut self, cmd: Command) {
+        let frame = Frame::<NormalDshot>::command(cmd, self.telemetry_enabled);
+        self.pio_instance.sm0.tx().push(frame.inner() as u32);
+        self.pio_instance.sm1.tx().push(frame.inner() as u32);
     }
 }
 
-impl <'d,PIO : Instance> super::DshotPioTrait<3> for DshotPio<'d,3,PIO> {
-    
-    /// Send any valid DShot value to the ESC.
-    fn command(&mut self, command: [u16; 3]) {
-        self.pio_instance.sm0.tx().push(command[0].min(dshot::THROTTLE_MAX) as u32);
-        self.pio_instance.sm0.tx().push(command[1].min(dshot::THROTTLE_MAX) as u32);
-        self.pio_instance.sm0.tx().push(command[2].min(dshot::THROTTLE_MAX) as u32);
-    }
-    
-    /// Set the direction of rotation for each motor
-    fn reverse(&mut self, reverse: [bool;3]) {
-        self.pio_instance.sm0.tx().push(dshot::reverse(reverse[0]) as u32);
-        self.pio_instance.sm1.tx().push(dshot::reverse(reverse[1]) as u32);
-        self.pio_instance.sm2.tx().push(dshot::reverse(reverse[2]) as u32);
+impl<'d, PIO: Instance> super::DshotPioTrait<3> for DshotPio<'d, 3, PIO> {
+    fn command(&mut self, command: [u16; 3]) -> Result<(), DshotError> {
+        for (i, &cmd) in command.iter().enumerate() {
+            let frame = if cmd < 48 {
+                Frame::<NormalDshot>::command(
+                    unsafe { core::mem::transmute(cmd as u8) },
+                    self.telemetry_enabled
+                )
+            } else {
+                let throttle = cmd.saturating_sub(48);
+                if throttle >= 2000 {
+                    return Err(DshotError::InvalidThrottle);
+                }
+                Frame::<NormalDshot>::new(throttle, self.telemetry_enabled)
+                    .ok_or(DshotError::InvalidThrottle)?
+            };
+            match i {
+                0 => self.pio_instance.sm0.tx().push(frame.inner() as u32),
+                1 => self.pio_instance.sm1.tx().push(frame.inner() as u32),
+                2 => self.pio_instance.sm2.tx().push(frame.inner() as u32),
+                _ => unreachable!(),
+            }
+        }
+        Ok(())
     }
 
-    /// Set the throttle for each motor. All values are clamped between 48 and 2047
-    fn throttle_clamp(&mut self, throttle: [u16;3]) {
-        self.pio_instance.sm0.tx().push(dshot::throttle_clamp(throttle[0], false) as u32);
-        self.pio_instance.sm1.tx().push(dshot::throttle_clamp(throttle[1], false) as u32);
-        self.pio_instance.sm2.tx().push(dshot::throttle_clamp(throttle[2], false) as u32);
+    fn reverse(&mut self, reverse: [bool; 3]) {
+        for (i, &rev) in reverse.iter().enumerate() {
+            let cmd = if rev { Command::SpinDirectonReversed } else { Command::SpinDirectionNormal };
+            let frame = Frame::<NormalDshot>::command(cmd, self.telemetry_enabled);
+            match i {
+                0 => self.pio_instance.sm0.tx().push(frame.inner() as u32),
+                1 => self.pio_instance.sm1.tx().push(frame.inner() as u32),
+                2 => self.pio_instance.sm2.tx().push(frame.inner() as u32),
+                _ => unreachable!(),
+            }
+        }
     }
 
-    /// Set the throttle for each motor to zero (DShot command 48)
+    fn throttle_clamp(&mut self, throttle: [u16; 3]) -> Result<(), DshotError> {
+        for (i, &t) in throttle.iter().enumerate() {
+            let frame = Frame::<NormalDshot>::new(t.min(1999), self.telemetry_enabled)
+                .ok_or(DshotError::InvalidThrottle)?;
+            match i {
+                0 => self.pio_instance.sm0.tx().push(frame.inner() as u32),
+                1 => self.pio_instance.sm1.tx().push(frame.inner() as u32),
+                2 => self.pio_instance.sm2.tx().push(frame.inner() as u32),
+                _ => unreachable!(),
+            }
+        }
+        Ok(())
+    }
+
     fn throttle_minimum(&mut self) {
-        self.pio_instance.sm0.tx().push(dshot::throttle_minimum(false) as u32);
-        self.pio_instance.sm1.tx().push(dshot::throttle_minimum(false) as u32);
-        self.pio_instance.sm2.tx().push(dshot::throttle_minimum(false) as u32);
+        let frame = Frame::<NormalDshot>::new(0, self.telemetry_enabled)
+            .expect("Zero throttle should always be valid");
+        self.pio_instance.sm0.tx().push(frame.inner() as u32);
+        self.pio_instance.sm1.tx().push(frame.inner() as u32);
+        self.pio_instance.sm2.tx().push(frame.inner() as u32);
+    }
+
+    fn send_command(&mut self, cmd: Command) {
+        let frame = Frame::<NormalDshot>::command(cmd, self.telemetry_enabled);
+        self.pio_instance.sm0.tx().push(frame.inner() as u32);
+        self.pio_instance.sm1.tx().push(frame.inner() as u32);
+        self.pio_instance.sm2.tx().push(frame.inner() as u32);
     }
 }
 
-impl <'d,PIO : Instance> super::DshotPioTrait<4 > for DshotPio<'d,4,PIO> {
-    
-    /// Send any valid DShot value to the ESC.
-    fn command(&mut self, command: [u16; 4]) {
-        self.pio_instance.sm0.tx().push(command[0].min(dshot::THROTTLE_MAX) as u32);
-        self.pio_instance.sm0.tx().push(command[1].min(dshot::THROTTLE_MAX) as u32);
-        self.pio_instance.sm0.tx().push(command[2].min(dshot::THROTTLE_MAX) as u32);
-        self.pio_instance.sm0.tx().push(command[3].min(dshot::THROTTLE_MAX) as u32);
-    }
-    
-    /// Set the direction of rotation for each motor
-    fn reverse(&mut self, reverse: [bool;4]) {
-        self.pio_instance.sm0.tx().push(dshot::reverse(reverse[0]) as u32);
-        self.pio_instance.sm1.tx().push(dshot::reverse(reverse[1]) as u32);
-        self.pio_instance.sm2.tx().push(dshot::reverse(reverse[2]) as u32);
-        self.pio_instance.sm3.tx().push(dshot::reverse(reverse[3]) as u32);
+impl<'d, PIO: Instance> super::DshotPioTrait<4> for DshotPio<'d, 4, PIO> {
+    fn command(&mut self, command: [u16; 4]) -> Result<(), DshotError> {
+        for (i, &cmd) in command.iter().enumerate() {
+            let frame = if cmd < 48 {
+                Frame::<NormalDshot>::command(
+                    unsafe { core::mem::transmute(cmd as u8) },
+                    self.telemetry_enabled
+                )
+            } else {
+                let throttle = cmd.saturating_sub(48);
+                if throttle >= 2000 {
+                    return Err(DshotError::InvalidThrottle);
+                }
+                Frame::<NormalDshot>::new(throttle, self.telemetry_enabled)
+                    .ok_or(DshotError::InvalidThrottle)?
+            };
+            match i {
+                0 => self.pio_instance.sm0.tx().push(frame.inner() as u32),
+                1 => self.pio_instance.sm1.tx().push(frame.inner() as u32),
+                2 => self.pio_instance.sm2.tx().push(frame.inner() as u32),
+                3 => self.pio_instance.sm3.tx().push(frame.inner() as u32),
+                _ => unreachable!(),
+            }
+        }
+        Ok(())
     }
 
-    /// Set the throttle for each motor. All values are clamped between 48 and 2047
-    fn throttle_clamp(&mut self, throttle: [u16;4]) {
-        self.pio_instance.sm0.tx().push(dshot::throttle_clamp(throttle[0], false) as u32);
-        self.pio_instance.sm1.tx().push(dshot::throttle_clamp(throttle[1], false) as u32);
-        self.pio_instance.sm2.tx().push(dshot::throttle_clamp(throttle[2], false) as u32);
-        self.pio_instance.sm3.tx().push(dshot::throttle_clamp(throttle[3], false) as u32);
+    fn reverse(&mut self, reverse: [bool; 4]) {
+        for (i, &rev) in reverse.iter().enumerate() {
+            let cmd = if rev { Command::SpinDirectonReversed } else { Command::SpinDirectionNormal };
+            let frame = Frame::<NormalDshot>::command(cmd, self.telemetry_enabled);
+            match i {
+                0 => self.pio_instance.sm0.tx().push(frame.inner() as u32),
+                1 => self.pio_instance.sm1.tx().push(frame.inner() as u32),
+                2 => self.pio_instance.sm2.tx().push(frame.inner() as u32),
+                3 => self.pio_instance.sm3.tx().push(frame.inner() as u32),
+                _ => unreachable!(),
+            }
+        }
     }
 
-    /// Set the throttle for each motor to zero (DShot command 48)
+    fn throttle_clamp(&mut self, throttle: [u16; 4]) -> Result<(), DshotError> {
+        for (i, &t) in throttle.iter().enumerate() {
+            let frame = Frame::<NormalDshot>::new(t.min(1999), self.telemetry_enabled)
+                .ok_or(DshotError::InvalidThrottle)?;
+            match i {
+                0 => self.pio_instance.sm0.tx().push(frame.inner() as u32),
+                1 => self.pio_instance.sm1.tx().push(frame.inner() as u32),
+                2 => self.pio_instance.sm2.tx().push(frame.inner() as u32),
+                3 => self.pio_instance.sm3.tx().push(frame.inner() as u32),
+                _ => unreachable!(),
+            }
+        }
+        Ok(())
+    }
+
     fn throttle_minimum(&mut self) {
-        self.pio_instance.sm0.tx().push(dshot::throttle_minimum(false) as u32);
-        self.pio_instance.sm1.tx().push(dshot::throttle_minimum(false) as u32);
-        self.pio_instance.sm2.tx().push(dshot::throttle_minimum(false) as u32);
-        self.pio_instance.sm3.tx().push(dshot::throttle_minimum(false) as u32);
+        let frame = Frame::<NormalDshot>::new(0, self.telemetry_enabled)
+            .expect("Zero throttle should always be valid");
+        self.pio_instance.sm0.tx().push(frame.inner() as u32);
+        self.pio_instance.sm1.tx().push(frame.inner() as u32);
+        self.pio_instance.sm2.tx().push(frame.inner() as u32);
+        self.pio_instance.sm3.tx().push(frame.inner() as u32);
+    }
+
+    fn send_command(&mut self, cmd: Command) {
+        let frame = Frame::<NormalDshot>::command(cmd, self.telemetry_enabled);
+        self.pio_instance.sm0.tx().push(frame.inner() as u32);
+        self.pio_instance.sm1.tx().push(frame.inner() as u32);
+        self.pio_instance.sm2.tx().push(frame.inner() as u32);
+        self.pio_instance.sm3.tx().push(frame.inner() as u32);
     }
 }

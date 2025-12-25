@@ -1,5 +1,4 @@
-pub use super::DshotPioTrait;
-use dshot_encoder as dshot;
+pub use super::{DshotPioTrait, DshotError, Telemetry, Frame, NormalDshot, Command};
 
 use rp2040_hal::{
     gpio::{Function, Pin, PinId, PullType, ValidFunction},
@@ -15,6 +14,7 @@ pub struct DshotPio<const N: usize, P: PIOExt> {
     sm1: Tx<(P, SM1)>,
     sm2: Tx<(P, SM2)>,
     sm3: Tx<(P, SM3)>,
+    telemetry_enabled: bool,
 }
 
 fn configure_pio_instance<P: PIOExt>(
@@ -127,6 +127,7 @@ impl<P: PIOExt> DshotPio<1, P> {
             sm1: tx1,
             sm2: tx2,
             sm3: tx3,
+            telemetry_enabled: false,
         }
     }
 }
@@ -157,6 +158,7 @@ impl<P: PIOExt> DshotPio<2, P> {
             sm1: tx1,
             sm2: tx2,
             sm3: tx3,
+            telemetry_enabled: false,
         }
     }
 }
@@ -188,6 +190,7 @@ impl<P: PIOExt> DshotPio<3, P> {
             sm1: tx1,
             sm2: tx2,
             sm3: tx3,
+            telemetry_enabled: false,
         }
     }
 }
@@ -218,6 +221,7 @@ impl<P: PIOExt> DshotPio<4, P> {
             sm1: tx1,
             sm2: tx2,
             sm3: tx3,
+            telemetry_enabled: false,
         }
     }
 }
@@ -227,113 +231,252 @@ impl<P: PIOExt> DshotPio<4, P> {
 ///
 
 impl<P: PIOExt> super::DshotPioTrait<1> for DshotPio<1, P> {
-    /// Send any valid DShot value to the ESC.
-    fn command(&mut self, command: [u16; 1]) {
-        self.sm0.write(command[0].min(dshot::THROTTLE_MAX) as u32);
+    fn command(&mut self, command: [u16; 1]) -> Result<(), DshotError> {
+        let frame = if command[0] < 48 {
+            Frame::<NormalDshot>::command(
+                unsafe { core::mem::transmute(command[0] as u8) },
+                self.telemetry_enabled
+            )
+        } else {
+            let throttle = command[0].saturating_sub(48);
+            if throttle >= 2000 {
+                return Err(DshotError::InvalidThrottle);
+            }
+            Frame::<NormalDshot>::new(throttle, self.telemetry_enabled)
+                .ok_or(DshotError::InvalidThrottle)?
+        };
+        self.sm0.write(frame.inner() as u32);
+        Ok(())
     }
 
-    /// Set the direction of rotation for each motor
     fn reverse(&mut self, reverse: [bool; 1]) {
-        self.sm0.write(dshot::reverse(reverse[0]) as u32);
+        let cmd = if reverse[0] { Command::SpinDirectonReversed } else { Command::SpinDirectionNormal };
+        let frame = Frame::<NormalDshot>::command(cmd, self.telemetry_enabled);
+        self.sm0.write(frame.inner() as u32);
     }
 
-    /// Set the throttle for each motor. All values are clamped between 48 and 2047
-    fn throttle_clamp(&mut self, throttle: [u16;1])  {
-        self.sm0.write(dshot::throttle_clamp(throttle[0], false) as u32);
+    fn throttle_clamp(&mut self, throttle: [u16; 1]) -> Result<(), DshotError> {
+        let frame = Frame::<NormalDshot>::new(throttle[0].min(1999), self.telemetry_enabled)
+            .ok_or(DshotError::InvalidThrottle)?;
+        self.sm0.write(frame.inner() as u32);
+        Ok(())
     }
 
-    /// Set the throttle for each motor to zero (DShot command 48)
     fn throttle_minimum(&mut self) {
-        self.sm0.write(dshot::throttle_minimum(false) as u32);
+        let frame = Frame::<NormalDshot>::new(0, self.telemetry_enabled)
+            .expect("Zero throttle should always be valid");
+        self.sm0.write(frame.inner() as u32);
+    }
+
+    fn send_command(&mut self, cmd: Command) {
+        let frame = Frame::<NormalDshot>::command(cmd, self.telemetry_enabled);
+        self.sm0.write(frame.inner() as u32);
     }
 }
 
 impl<P: PIOExt> super::DshotPioTrait<2> for DshotPio<2, P> {
-    /// Send any valid DShot value to the ESC.
-    fn command(&mut self, command: [u16; 2]) {
-        self.sm0.write(command[0].min(dshot::THROTTLE_MAX) as u32);
-        self.sm0.write(command[1].min(dshot::THROTTLE_MAX) as u32);
+    fn command(&mut self, command: [u16; 2]) -> Result<(), DshotError> {
+        for (i, &cmd) in command.iter().enumerate() {
+            let frame = if cmd < 48 {
+                Frame::<NormalDshot>::command(
+                    unsafe { core::mem::transmute(cmd as u8) },
+                    self.telemetry_enabled
+                )
+            } else {
+                let throttle = cmd.saturating_sub(48);
+                if throttle >= 2000 {
+                    return Err(DshotError::InvalidThrottle);
+                }
+                Frame::<NormalDshot>::new(throttle, self.telemetry_enabled)
+                    .ok_or(DshotError::InvalidThrottle)?
+            };
+            match i {
+                0 => { self.sm0.write(frame.inner() as u32); },
+                1 => { self.sm1.write(frame.inner() as u32); },
+                _ => unreachable!(),
+            }
+        }
+        Ok(())
     }
 
-    /// Set the direction of rotation for each motor
     fn reverse(&mut self, reverse: [bool; 2]) {
-        self.sm0.write(dshot::reverse(reverse[0]) as u32);
-        self.sm1.write(dshot::reverse(reverse[1]) as u32);
+        for (i, &rev) in reverse.iter().enumerate() {
+            let cmd = if rev { Command::SpinDirectonReversed } else { Command::SpinDirectionNormal };
+            let frame = Frame::<NormalDshot>::command(cmd, self.telemetry_enabled);
+            match i {
+                0 => { self.sm0.write(frame.inner() as u32); },
+                1 => { self.sm1.write(frame.inner() as u32); },
+                _ => unreachable!(),
+            }
+        }
     }
 
-    /// Set the throttle for each motor. All values are clamped between 48 and 2047
-    fn throttle_clamp(&mut self, throttle: [u16;2]) {
-        self.sm0.write(dshot::throttle_clamp(throttle[0], false) as u32);
-        self.sm1.write(dshot::throttle_clamp(throttle[1], false) as u32);
+    fn throttle_clamp(&mut self, throttle: [u16; 2]) -> Result<(), DshotError> {
+        for (i, &t) in throttle.iter().enumerate() {
+            let frame = Frame::<NormalDshot>::new(t.min(1999), self.telemetry_enabled)
+                .ok_or(DshotError::InvalidThrottle)?;
+            match i {
+                0 => { self.sm0.write(frame.inner() as u32); },
+                1 => { self.sm1.write(frame.inner() as u32); },
+                _ => unreachable!(),
+            }
+        }
+        Ok(())
     }
 
-    /// Set the throttle for each motor to zero (DShot command 48)
     fn throttle_minimum(&mut self) {
-        self.sm0.write(dshot::throttle_minimum(false) as u32);
-        self.sm1.write(dshot::throttle_minimum(false) as u32);
+        let frame = Frame::<NormalDshot>::new(0, self.telemetry_enabled)
+            .expect("Zero throttle should always be valid");
+        self.sm0.write(frame.inner() as u32);
+        self.sm1.write(frame.inner() as u32);
+    }
+
+    fn send_command(&mut self, cmd: Command) {
+        let frame = Frame::<NormalDshot>::command(cmd, self.telemetry_enabled);
+        self.sm0.write(frame.inner() as u32);
+        self.sm1.write(frame.inner() as u32);
     }
 }
 
 impl<P: PIOExt> super::DshotPioTrait<3> for DshotPio<3, P> {
-    /// Send any valid DShot value to the ESC.
-    fn command(&mut self, command: [u16; 3]) {
-        self.sm0.write(command[0].min(dshot::THROTTLE_MAX) as u32);
-        self.sm0.write(command[1].min(dshot::THROTTLE_MAX) as u32);
-        self.sm0.write(command[2].min(dshot::THROTTLE_MAX) as u32);
+    fn command(&mut self, command: [u16; 3]) -> Result<(), DshotError> {
+        for (i, &cmd) in command.iter().enumerate() {
+            let frame = if cmd < 48 {
+                Frame::<NormalDshot>::command(
+                    unsafe { core::mem::transmute(cmd as u8) },
+                    self.telemetry_enabled
+                )
+            } else {
+                let throttle = cmd.saturating_sub(48);
+                if throttle >= 2000 {
+                    return Err(DshotError::InvalidThrottle);
+                }
+                Frame::<NormalDshot>::new(throttle, self.telemetry_enabled)
+                    .ok_or(DshotError::InvalidThrottle)?
+            };
+            match i {
+                0 => { self.sm0.write(frame.inner() as u32); },
+                1 => { self.sm1.write(frame.inner() as u32); },
+                2 => { self.sm2.write(frame.inner() as u32); },
+                _ => unreachable!(),
+            }
+        }
+        Ok(())
     }
 
-    /// Set the direction of rotation for each motor
     fn reverse(&mut self, reverse: [bool; 3]) {
-        self.sm0.write(dshot::reverse(reverse[0]) as u32);
-        self.sm1.write(dshot::reverse(reverse[1]) as u32);
-        self.sm2.write(dshot::reverse(reverse[2]) as u32);
+        for (i, &rev) in reverse.iter().enumerate() {
+            let cmd = if rev { Command::SpinDirectonReversed } else { Command::SpinDirectionNormal };
+            let frame = Frame::<NormalDshot>::command(cmd, self.telemetry_enabled);
+            match i {
+                0 => { self.sm0.write(frame.inner() as u32); },
+                1 => { self.sm1.write(frame.inner() as u32); },
+                2 => { self.sm2.write(frame.inner() as u32); },
+                _ => unreachable!(),
+            }
+        }
     }
 
-    /// Set the throttle for each motor. All values are clamped between 48 and 2047
-    fn throttle_clamp(&mut self, throttle: [u16;3]) {
-        self.sm0.write(dshot::throttle_clamp(throttle[0], false) as u32);
-        self.sm1.write(dshot::throttle_clamp(throttle[1], false) as u32);
-        self.sm2.write(dshot::throttle_clamp(throttle[2], false) as u32);
+    fn throttle_clamp(&mut self, throttle: [u16; 3]) -> Result<(), DshotError> {
+        for (i, &t) in throttle.iter().enumerate() {
+            let frame = Frame::<NormalDshot>::new(t.min(1999), self.telemetry_enabled)
+                .ok_or(DshotError::InvalidThrottle)?;
+            match i {
+                0 => { self.sm0.write(frame.inner() as u32); },
+                1 => { self.sm1.write(frame.inner() as u32); },
+                2 => { self.sm2.write(frame.inner() as u32); },
+                _ => unreachable!(),
+            }
+        }
+        Ok(())
     }
 
-    /// Set the throttle for each motor to zero (DShot command 48)
     fn throttle_minimum(&mut self) {
-        self.sm0.write(dshot::throttle_minimum(false) as u32);
-        self.sm1.write(dshot::throttle_minimum(false) as u32);
-        self.sm2.write(dshot::throttle_minimum(false) as u32);
+        let frame = Frame::<NormalDshot>::new(0, self.telemetry_enabled)
+            .expect("Zero throttle should always be valid");
+        self.sm0.write(frame.inner() as u32);
+        self.sm1.write(frame.inner() as u32);
+        self.sm2.write(frame.inner() as u32);
+    }
+
+    fn send_command(&mut self, cmd: Command) {
+        let frame = Frame::<NormalDshot>::command(cmd, self.telemetry_enabled);
+        self.sm0.write(frame.inner() as u32);
+        self.sm1.write(frame.inner() as u32);
+        self.sm2.write(frame.inner() as u32);
     }
 }
 
 impl<P: PIOExt> super::DshotPioTrait<4> for DshotPio<4, P> {
-    /// Send any valid DShot value to the ESC.
-    fn command(&mut self, command: [u16; 4]) {
-        self.sm0.write(command[0].min(dshot::THROTTLE_MAX) as u32);
-        self.sm0.write(command[1].min(dshot::THROTTLE_MAX) as u32);
-        self.sm0.write(command[2].min(dshot::THROTTLE_MAX) as u32);
-        self.sm0.write(command[3].min(dshot::THROTTLE_MAX) as u32);
+    fn command(&mut self, command: [u16; 4]) -> Result<(), DshotError> {
+        for (i, &cmd) in command.iter().enumerate() {
+            let frame = if cmd < 48 {
+                Frame::<NormalDshot>::command(
+                    unsafe { core::mem::transmute(cmd as u8) },
+                    self.telemetry_enabled
+                )
+            } else {
+                let throttle = cmd.saturating_sub(48);
+                if throttle >= 2000 {
+                    return Err(DshotError::InvalidThrottle);
+                }
+                Frame::<NormalDshot>::new(throttle, self.telemetry_enabled)
+                    .ok_or(DshotError::InvalidThrottle)?
+            };
+            match i {
+                0 => { self.sm0.write(frame.inner() as u32); },
+                1 => { self.sm1.write(frame.inner() as u32); },
+                2 => { self.sm2.write(frame.inner() as u32); },
+                3 => { self.sm3.write(frame.inner() as u32); },
+                _ => unreachable!(),
+            }
+        }
+        Ok(())
     }
 
-    /// Set the direction of rotation for each motor
     fn reverse(&mut self, reverse: [bool; 4]) {
-        self.sm0.write(dshot::reverse(reverse[0]) as u32);
-        self.sm1.write(dshot::reverse(reverse[1]) as u32);
-        self.sm2.write(dshot::reverse(reverse[2]) as u32);
-        self.sm3.write(dshot::reverse(reverse[3]) as u32);
+        for (i, &rev) in reverse.iter().enumerate() {
+            let cmd = if rev { Command::SpinDirectonReversed } else { Command::SpinDirectionNormal };
+            let frame = Frame::<NormalDshot>::command(cmd, self.telemetry_enabled);
+            match i {
+                0 => { self.sm0.write(frame.inner() as u32); },
+                1 => { self.sm1.write(frame.inner() as u32); },
+                2 => { self.sm2.write(frame.inner() as u32); },
+                3 => { self.sm3.write(frame.inner() as u32); },
+                _ => unreachable!(),
+            }
+        }
     }
 
-    /// Set the throttle for each motor. All values are clamped between 48 and 2047
-    fn throttle_clamp(&mut self, throttle: [u16;4]) {
-        self.sm0.write(dshot::throttle_clamp(throttle[0], false) as u32);
-        self.sm1.write(dshot::throttle_clamp(throttle[1], false) as u32);
-        self.sm2.write(dshot::throttle_clamp(throttle[2], false) as u32);
-        self.sm3.write(dshot::throttle_clamp(throttle[3], false) as u32);
+    fn throttle_clamp(&mut self, throttle: [u16; 4]) -> Result<(), DshotError> {
+        for (i, &t) in throttle.iter().enumerate() {
+            let frame = Frame::<NormalDshot>::new(t.min(1999), self.telemetry_enabled)
+                .ok_or(DshotError::InvalidThrottle)?;
+            match i {
+                0 => { self.sm0.write(frame.inner() as u32); },
+                1 => { self.sm1.write(frame.inner() as u32); },
+                2 => { self.sm2.write(frame.inner() as u32); },
+                3 => { self.sm3.write(frame.inner() as u32); },
+                _ => unreachable!(),
+            }
+        }
+        Ok(())
     }
 
-    /// Set the throttle for each motor to zero (DShot command 48)
     fn throttle_minimum(&mut self) {
-        self.sm0.write(dshot::throttle_minimum(false) as u32);
-        self.sm1.write(dshot::throttle_minimum(false) as u32);
-        self.sm2.write(dshot::throttle_minimum(false) as u32);
-        self.sm3.write(dshot::throttle_minimum(false) as u32);
+        let frame = Frame::<NormalDshot>::new(0, self.telemetry_enabled)
+            .expect("Zero throttle should always be valid");
+        self.sm0.write(frame.inner() as u32);
+        self.sm1.write(frame.inner() as u32);
+        self.sm2.write(frame.inner() as u32);
+        self.sm3.write(frame.inner() as u32);
+    }
+
+    fn send_command(&mut self, cmd: Command) {
+        let frame = Frame::<NormalDshot>::command(cmd, self.telemetry_enabled);
+        self.sm0.write(frame.inner() as u32);
+        self.sm1.write(frame.inner() as u32);
+        self.sm2.write(frame.inner() as u32);
+        self.sm3.write(frame.inner() as u32);
     }
 }
