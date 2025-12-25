@@ -6,7 +6,7 @@ extern crate std;
 // Re-export commonly used types from dshot-frame
 pub use dshot_frame::{Command, ErpmTelemetry, Frame, NormalDshot, BidirectionalDshot};
 
-#[cfg(any(feature = "embassy-rp", feature = "embassy-rp2350"))]
+#[cfg(any(feature = "rp2040", feature = "rp2350"))]
 pub mod dshot_embassy_rp;
 
 #[cfg(feature = "rp2040-hal")]
@@ -80,7 +80,7 @@ pub trait DshotPioTrait<const N: usize> {
 /// Provides non-blocking async/await methods that integrate with Embassy's executor.
 /// These methods yield to the executor while waiting for TX FIFO space, enabling
 /// concurrent tasks to run efficiently.
-#[cfg(any(feature = "embassy-rp", feature = "embassy-rp2350"))]
+#[cfg(any(feature = "rp2040", feature = "rp2350"))]
 pub trait DshotPioAsync<const N: usize> {
     /// Send raw DShot command values asynchronously (0-2047)
     ///
