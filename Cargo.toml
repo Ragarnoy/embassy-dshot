@@ -4,6 +4,8 @@ version = "0.4.0"
 edition = "2021"
 
 [features]
+default = []
+std = []
 embassy-rp = ["dep:embassy-rp", "embassy-rp/rp2040"]
 rp2040-hal = ["dep:rp2040-hal"]
 

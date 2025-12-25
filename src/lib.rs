@@ -1,5 +1,8 @@
 #![no_std]
 
+#[cfg(any(test, feature = "std"))]
+extern crate std;
+
 // Re-export commonly used types from dshot-frame
 pub use dshot_frame::{Command, ErpmTelemetry, Frame, NormalDshot, BidirectionalDshot};
 
@@ -99,4 +102,86 @@ pub trait DshotPioAsync<const N: usize> {
 
     /// Send a DShot command to all motors asynchronously
     async fn send_command_async(&mut self, cmd: Command);
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn telemetry_rpm_conversion() {
+        let telem = Telemetry {
+            erpm: 10000,
+            period_us: Some(6000),
+        };
+        
+        // 14-pole motor: RPM = eRPM / (poles/2) = 10000 / 7 ≈ 1428
+        assert_eq!(telem.rpm(14), 1428);
+        
+        // 12-pole motor: RPM = 10000 / 6 ≈ 1666
+        assert_eq!(telem.rpm(12), 1666);
+    }
+
+    #[test]
+    fn telemetry_rpm_zero_poles() {
+        let telem = Telemetry {
+            erpm: 10000,
+            period_us: Some(6000),
+        };
+        
+        // Invalid pole count should return 0
+        assert_eq!(telem.rpm(0), 0);
+        assert_eq!(telem.rpm(1), 0);
+    }
+
+    #[test]
+    fn dshot_error_equality() {
+        assert_eq!(DshotError::InvalidThrottle, DshotError::InvalidThrottle);
+        assert_ne!(DshotError::InvalidThrottle, DshotError::InvalidTelemetryCrc);
+    }
+
+    #[test]
+    fn frame_creation_valid() {
+        // Test valid throttle values
+        assert!(Frame::<NormalDshot>::new(0, false).is_some());
+        assert!(Frame::<NormalDshot>::new(999, false).is_some());
+        assert!(Frame::<NormalDshot>::new(1999, false).is_some());
+    }
+
+    #[test]
+    fn frame_creation_invalid() {
+        // Out of range should fail
+        assert!(Frame::<NormalDshot>::new(2000, false).is_none());
+        assert!(Frame::<NormalDshot>::new(3000, false).is_none());
+    }
+
+    #[test]
+    fn frame_telemetry_flag() {
+        let frame_no_telem = Frame::<NormalDshot>::new(1000, false).unwrap();
+        let frame_with_telem = Frame::<NormalDshot>::new(1000, true).unwrap();
+        
+        assert!(!frame_no_telem.telemetry_enabled());
+        assert!(frame_with_telem.telemetry_enabled());
+    }
+
+    #[test]
+    fn frame_speed_roundtrip() {
+        for speed in [0, 100, 500, 999, 1500, 1999] {
+            let frame = Frame::<NormalDshot>::new(speed, false).unwrap();
+            assert_eq!(frame.speed(), speed);
+        }
+    }
+
+    #[test]
+    fn command_enum_values() {
+        // Verify some key command values
+        assert_eq!(Command::MotorStop as u16, 0);
+        assert_eq!(Command::SpinDirectionNormal as u16, 20);
+    }
+
+    #[test]
+    fn bidir_frame_creation() {
+        let frame = Frame::<BidirectionalDshot>::new(1000, true).unwrap();
+        assert_eq!(frame.speed(), 1000);
+        assert!(frame.telemetry_enabled());
+    }
 }
