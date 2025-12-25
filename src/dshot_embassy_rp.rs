@@ -1,9 +1,11 @@
 pub use super::{DshotPioTrait, DshotError, Telemetry, Frame, NormalDshot, Command};
 
-use embassy_rp::{
-    pio::{ Instance, Pio, Config, PioPin, ShiftConfig, ShiftDirection::Left, InterruptHandler},
-    Peripheral, interrupt::typelevel::Binding
+use embassy_rp::Peri;
+use embassy_rp::pio::program::pio_asm;
+use embassy_rp::pio::{
+    Config, Instance, InterruptHandler, Pio, PioPin, ShiftConfig, ShiftDirection,
 };
+use embassy_rp::interrupt::typelevel::Binding;
 
 /// DShot PIO driver for Embassy
 pub struct DshotPio<'a, const N : usize, PIO : Instance> {
@@ -13,13 +15,13 @@ pub struct DshotPio<'a, const N : usize, PIO : Instance> {
 
 
 fn configure_pio_instance<'a,PIO: Instance>  (
-    pio: impl Peripheral<P = PIO> + 'a,
+    pio: Peri<'a, PIO>,
     irq: impl Binding<PIO::Interrupt, InterruptHandler<PIO>>,
     clk_div: (u16, u8),
 ) -> (Config<'a, PIO>, Pio<'a, PIO>) {
     
     // Define program
-    let dshot_pio_program = pio_proc::pio_asm!(
+    let dshot_pio_program = pio_asm!(
         "set pindirs, 1",
         "entry:"
         "   pull"
@@ -59,7 +61,7 @@ fn configure_pio_instance<'a,PIO: Instance>  (
 
     cfg.shift_out = ShiftConfig {
         auto_fill: Default::default(),
-        direction: Left,
+        direction: ShiftDirection::Left,
         threshold: Default::default(),
     };
 
@@ -73,9 +75,9 @@ fn configure_pio_instance<'a,PIO: Instance>  (
 
 impl <'a,PIO: Instance> DshotPio<'a,1,PIO> {
     pub fn new(
-        pio: impl Peripheral<P = PIO> + 'a,
+        pio: Peri<'a, PIO>,
         irq: impl Binding<PIO::Interrupt, InterruptHandler<PIO>>,
-        pin0: impl PioPin,
+        pin0: Peri<'a, impl PioPin + 'a>,
         clk_div: (u16, u8),
     ) -> DshotPio<'a,1,PIO> {
 
@@ -97,10 +99,10 @@ impl <'a,PIO: Instance> DshotPio<'a,1,PIO> {
 
 impl <'a,PIO: Instance> DshotPio<'a,2,PIO> {
     pub fn new(
-        pio: impl Peripheral<P = PIO> + 'a,
+        pio: Peri<'a, PIO>,
         irq: impl Binding<PIO::Interrupt, InterruptHandler<PIO>>,
-        pin0: impl PioPin,
-        pin1: impl PioPin,
+        pin0: Peri<'a, impl PioPin + 'a>,
+        pin1: Peri<'a, impl PioPin + 'a>,
         clk_div: (u16, u8),
     ) -> DshotPio<'a,2,PIO> {
 
@@ -127,11 +129,11 @@ impl <'a,PIO: Instance> DshotPio<'a,2,PIO> {
 
 impl <'a,PIO: Instance> DshotPio<'a,3,PIO> {
     pub fn new(
-        pio: impl Peripheral<P = PIO> + 'a,
+        pio: Peri<'a, PIO>,
         irq: impl Binding<PIO::Interrupt, InterruptHandler<PIO>>,
-        pin0: impl PioPin,
-        pin1: impl PioPin,
-        pin2: impl PioPin,
+        pin0: Peri<'a, impl PioPin + 'a>,
+        pin1: Peri<'a, impl PioPin + 'a>,
+        pin2: Peri<'a, impl PioPin + 'a>,
         clk_div: (u16, u8),
     ) -> DshotPio<'a,3,PIO> {
 
@@ -163,12 +165,12 @@ impl <'a,PIO: Instance> DshotPio<'a,3,PIO> {
 
 impl <'a,PIO: Instance> DshotPio<'a,4,PIO> {
     pub fn new(
-        pio: impl Peripheral<P = PIO> + 'a,
+        pio: Peri<'a, PIO>,
         irq: impl Binding<PIO::Interrupt, InterruptHandler<PIO>>,
-        pin0: impl PioPin,
-        pin1: impl PioPin,
-        pin2: impl PioPin,
-        pin3: impl PioPin,
+        pin0: Peri<'a, impl PioPin + 'a>,
+        pin1: Peri<'a, impl PioPin + 'a>,
+        pin2: Peri<'a, impl PioPin + 'a>,
+        pin3: Peri<'a, impl PioPin + 'a>,
         clk_div: (u16, u8),
     ) -> DshotPio<'a,4,PIO> {
 
