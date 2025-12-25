@@ -3,10 +3,10 @@ name = "embassy-dshot"
 version = "0.1.0"
 edition = "2021"
 resolver = "2"
-authors = ["Your Name <your.email@example.com>"]
+authors = ["Ragarnoy <tiagolernould@gmail.com>"]
 license = "MIT OR Apache-2.0"
 description = "Async DShot ESC protocol driver for embassy-rp (RP2040/RP2350)"
-repository = "https://github.com/Ragarnoy/dshot-pio"
+repository = "https://github.com/Ragarnoy/embassy-dshot"
 keywords = ["embassy", "dshot", "esc", "rp2040", "rp2350"]
 categories = ["embedded", "no-std"]
 
