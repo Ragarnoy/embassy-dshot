@@ -71,3 +71,32 @@ pub trait DshotPioTrait<const N: usize> {
     /// Send a DShot command to all motors
     fn send_command(&mut self, cmd: Command);
 }
+
+/// Async trait for DShot PIO implementations (Embassy only)
+///
+/// Provides non-blocking async/await methods that integrate with Embassy's executor.
+/// These methods yield to the executor while waiting for TX FIFO space, enabling
+/// concurrent tasks to run efficiently.
+#[cfg(feature = "embassy-rp")]
+pub trait DshotPioAsync<const N: usize> {
+    /// Send raw DShot command values asynchronously (0-2047)
+    ///
+    /// This method is non-blocking and will yield to the executor if the TX FIFO is full.
+    async fn command_async(&mut self, command: [u16; N]) -> Result<(), DshotError>;
+
+    /// Set motor rotation direction asynchronously
+    ///
+    /// Note: This command requires 6 transmissions to take effect.
+    async fn reverse_async(&mut self, reverse: [bool; N]);
+
+    /// Set throttle values asynchronously (0-1999)
+    ///
+    /// Non-blocking variant that yields to the executor if TX FIFO is full.
+    async fn throttle_async(&mut self, throttle: [u16; N]) -> Result<(), DshotError>;
+
+    /// Set all motors to minimum throttle asynchronously
+    async fn throttle_minimum_async(&mut self);
+
+    /// Send a DShot command to all motors asynchronously
+    async fn send_command_async(&mut self, cmd: Command);
+}
