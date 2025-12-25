@@ -9,9 +9,6 @@ pub use dshot_frame::{Command, ErpmTelemetry, Frame, NormalDshot, BidirectionalD
 #[cfg(any(feature = "rp2040", feature = "rp2350"))]
 pub mod dshot_embassy_rp;
 
-#[cfg(feature = "rp2040-hal")]
-pub mod dshot_rp2040_hal;
-
 /// Error types for DShot operations
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DshotError {

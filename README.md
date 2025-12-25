@@ -1,50 +1,98 @@
-# DShot implementation for RP2040 using PIO
+# embassy-dshot
 
-This crate utilizes a single PIO block of the RP2040, enable it to send up to four DShot ESC commands (per PIO block, there are 2 of them) simultaneously, making it a great fit for quad-copters. The crate supports both the `embassy-rp` and  `rp2040-hal` hardware abstraction layers (HAL). To use either HAL, the corresponding feature *must* be enabled, using either feature below.
+Async DShot ESC protocol driver for embassy-rp supporting both RP2040 and RP2350.
+
+This crate provides an async-first DShot implementation using the RP-series PIO (Programmable I/O) to control up to 4 ESCs simultaneously per PIO block. Perfect for quadcopters and other multi-rotor applications.
+
+## Features
+
+- ✅ **Async/await** - Non-blocking motor control with Embassy
+- ✅ **RP2040 & RP2350** - Support for both chips
+- ✅ **Multi-motor** - Control 1-4 motors per PIO block (2 PIO blocks available)
+- ✅ **Type-safe** - Uses [dshot-frame](https://github.com/sulami/dshot-frame) for frame encoding
+- ✅ **No std** - Embedded-ready with optional std for testing
+
+## Usage
+
+Add to your `Cargo.toml`:
 
 ```toml
-dshot-pio = { git = "https://github.com/peterkrull/dshot-pio", features = ["embassy-rp"] }
-dshot-pio = { git = "https://github.com/peterkrull/dshot-pio", features = ["rp2040-hal"] }
+# For RP2040
+embassy-dshot = { version = "0.1", features = ["rp2040"] }
+
+# For RP2350
+embassy-dshot = { version = "0.1", features = ["rp2350"] }
 ```
-Creating the `DshotPio` struct is then a matter of passing into the constructor the PIO block to use, a single HAL-specific item, and the four pins to use as DShot ouputs. The last argument is the clock divider. In order to get reliable transmission to the ESCs, it is important to set the clock divider correctly. The formula for doing so is the following, where *dshot speed* is the number indicating speed, eg 150, 300, 600 and so on. The system clock can vary from board to board, but generally 120 Mhz to 133 Mhz is common for RP2040 boards.
 
-$$\text{clock divider} = \frac { \text{system clock} }{8 \cdot \text{dshot speed} \cdot 1000} $$
-
-This clock divider is passed to the constructor in two parts, consisting of the integer part, and the fraction. Generally stuff after the decimal point of the *clock divider* can be ignored, meaning that is should be good enough to pass only the integer part. Otherwise the remainder should be passed as `(remainder * 256 ) as u8`
-
----
-
-## Construction
-
-Constructing the motor struct looks slightly different, depending on whether the `rp2040-hal` or `embassy-rp`  HAL is used. The functionality of the resulting struct is however shared through a trait. The number of DShot drivers needed can be changed using the first number in the turbofish. 
+## Example
 
 ```rust
-use dshot_pio::rp2040_hal::*;
-let dshot_rp2040_hal = DshotPio::<4,_>::new(
-    pac.PIO0,
-    &mut pac.RESETS,
-    pins.gpio13,
-    pins.gpio7,
-    pins.gpio6,
-    pins.gpio12,
-    (52, 0) // clock divider
-);
-```
-For embassy, it is currently necessary to use a macro to correctly bind an interrupt.
+use embassy_executor::Spawner;
+use embassy_rp::bind_interrupts;
+use embassy_rp::peripherals::PIO0;
+use embassy_rp::pio::InterruptHandler;
+use embassy_dshot::dshot_embassy_rp::DshotPio;
+use embassy_dshot::{DshotPioAsync, Command};
 
-```rust
-bind_interrupts!( struct Pio0Irqs {
+bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;
 });
 
-use dshot_pio::embassy_rp::*;
-let dshot_embassy = DshotPio::<4,_>::new(
-    peri.PIO0,
-    Pio0Irqs,
-    peri.PIN_13,
-    peri.PIN_7,
-    peri.PIN_6,
-    peri.PIN_12,
-    (52, 0) // clock divider
-);
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
+    let p = embassy_rp::init(Default::default());
+
+    // Create DShot driver for 4 motors
+    let mut dshot = DshotPio::<4, _>::new(
+        p.PIO0,
+        Irqs,
+        p.PIN_13,
+        p.PIN_7,
+        p.PIN_6,
+        p.PIN_12,
+        (52, 0) // Clock divider for DShot600 @ 125MHz
+    );
+
+    // Send commands asynchronously
+    dshot.send_command_async(Command::MotorStop).await;
+    dshot.throttle_async([1000, 1000, 1000, 1000]).await?;
+}
 ```
+
+## Clock Divider Calculation
+
+For reliable ESC communication, calculate the clock divider:
+
+$$\text{clock divider} = \frac{\text{system clock}}{8 \cdot \text{dshot speed} \cdot 1000}$$
+
+Examples:
+- DShot150 @ 125MHz: `(104, 0)`
+- DShot300 @ 125MHz: `(52, 0)`
+- DShot600 @ 125MHz: `(26, 0)`
+
+Pass as `(integer_part, fractional_part)` where fractional = `(remainder * 256) as u8`.
+
+## API
+
+### Sync API (`DshotPioTrait`)
+- `throttle_clamp(&mut self, throttle: [u16; N])`
+- `send_command(&mut self, cmd: Command)`
+- `throttle_minimum(&mut self)`
+
+### Async API (`DshotPioAsync`)
+- `throttle_async(&mut self, throttle: [u16; N])`
+- `send_command_async(&mut self, cmd: Command)`
+- `throttle_minimum_async(&mut self)`
+
+## Credits
+
+Originally forked from [peterkrull/dshot-pio](https://github.com/peterkrull/dshot-pio). This version has been completely rewritten for embassy-rp 0.9 with async support, RP2350 compatibility, and integration with the dshot-frame crate.
+
+## License
+
+Licensed under either of:
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE) or http://www.apache.org/licenses/LICENSE-2.0)
+- MIT license ([LICENSE-MIT](LICENSE) or http://opensource.org/licenses/MIT)
+
+at your option.

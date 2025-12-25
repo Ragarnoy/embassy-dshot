@@ -215,18 +215,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ccace5cb9d5d33d71bfb679043feb6bf384a2be1950f02880c3d9c5d8f01cc83"
 
 [[package]]
-name = "dshot-pio"
-version = "0.4.0"
-dependencies = [
- "dshot-frame",
- "embassy-rp",
-]
-
-[[package]]
 name = "either"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
+
+[[package]]
+name = "embassy-dshot"
+version = "0.1.0"
+dependencies = [
+ "dshot-frame",
+ "embassy-rp",
+]
 
 [[package]]
 name = "embassy-embedded-hal"
