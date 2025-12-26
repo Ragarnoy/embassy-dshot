@@ -10,6 +10,10 @@ repository = "https://github.com/Ragarnoy/embassy-dshot"
 keywords = ["embassy", "dshot", "esc", "rp2040", "rp2350"]
 categories = ["embedded", "no-std"]
 
+[package.metadata.docs.rs]
+features = ["rp2040"]
+targets = ["thumbv6m-none-eabi"]
+
 [features]
 default = []
 std = []
