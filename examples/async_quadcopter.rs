@@ -17,12 +17,12 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::PIO0;
-use embassy_rp::pio::{InterruptHandler, Pio};
+use embassy_rp::pio::InterruptHandler;
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
-use dshot_pio::dshot_embassy_rp::DshotPio;
-use dshot_pio::{Command, DshotPioAsync, DshotPioTrait};
+use embassy_dshot::dshot_embassy_rp::DshotPio;
+use embassy_dshot::{Command, DshotPioAsync, DshotPioTrait};
 
 // Bind PIO0 interrupt
 bind_interrupts!(struct Irqs {

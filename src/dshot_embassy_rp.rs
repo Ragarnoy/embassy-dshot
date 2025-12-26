@@ -55,23 +55,19 @@ fn configure_pio_instance<'a,PIO: Instance>  (
 
     cfg.shift_in = ShiftConfig {
         auto_fill: true,
-        direction: Default::default(),
+        direction: ShiftDirection::default(),
         threshold: 32,
     };
 
     cfg.shift_out = ShiftConfig {
-        auto_fill: Default::default(),
+        auto_fill: false,
         direction: ShiftDirection::Left,
-        threshold: Default::default(),
+        threshold: 32,
     };
 
     (cfg,pio)
 
 }
-
-///
-/// Defining constructor functions
-/// 
 
 impl <'a,PIO: Instance> DshotPio<'a,1,PIO> {
     pub fn new(
@@ -205,20 +201,16 @@ impl <'a,PIO: Instance> DshotPio<'a,4,PIO> {
     }
 }
 
-///
-/// Implementing DshotPioTrait
-/// 
-
 impl<'d, PIO: Instance> super::DshotPioTrait<1> for DshotPio<'d, 1, PIO> {
     /// Send raw DShot command values (0-2047)
     fn command(&mut self, command: [u16; 1]) -> Result<(), DshotError> {
         // For raw commands 0-47, create command frames directly
         if command[0] < 48 {
             let frame = Frame::<NormalDshot>::command(
-                unsafe { core::mem::transmute(command[0] as u8) }, // Convert to Command enum
+                unsafe { core::mem::transmute::<u8, Command>(command[0] as u8) },
                 self.telemetry_enabled
             );
-            self.pio_instance.sm0.tx().push(frame.inner() as u32);
+            self.pio_instance.sm0.tx().push(u32::from(frame.inner()));
             Ok(())
         } else {
             // For values 48-2047, create as throttle (subtract 48)
@@ -228,7 +220,7 @@ impl<'d, PIO: Instance> super::DshotPioTrait<1> for DshotPio<'d, 1, PIO> {
             }
             let frame = Frame::<NormalDshot>::new(throttle, self.telemetry_enabled)
                 .ok_or(DshotError::InvalidThrottle)?;
-            self.pio_instance.sm0.tx().push(frame.inner() as u32);
+            self.pio_instance.sm0.tx().push(u32::from(frame.inner()));
             Ok(())
         }
     }
@@ -241,7 +233,7 @@ impl<'d, PIO: Instance> super::DshotPioTrait<1> for DshotPio<'d, 1, PIO> {
             Command::SpinDirectionNormal
         };
         let frame = Frame::<NormalDshot>::command(cmd, self.telemetry_enabled);
-        self.pio_instance.sm0.tx().push(frame.inner() as u32);
+        self.pio_instance.sm0.tx().push(u32::from(frame.inner()));
     }
 
     /// Set throttle (0-1999), clamped and converted to DShot range (48-2047)
@@ -249,7 +241,7 @@ impl<'d, PIO: Instance> super::DshotPioTrait<1> for DshotPio<'d, 1, PIO> {
         let clamped = throttle[0].min(1999);
         let frame = Frame::<NormalDshot>::new(clamped, self.telemetry_enabled)
             .ok_or(DshotError::InvalidThrottle)?;
-        self.pio_instance.sm0.tx().push(frame.inner() as u32);
+        self.pio_instance.sm0.tx().push(u32::from(frame.inner()));
         Ok(())
     }
 
@@ -257,13 +249,13 @@ impl<'d, PIO: Instance> super::DshotPioTrait<1> for DshotPio<'d, 1, PIO> {
     fn throttle_minimum(&mut self) {
         let frame = Frame::<NormalDshot>::new(0, self.telemetry_enabled)
             .expect("Zero throttle should always be valid");
-        self.pio_instance.sm0.tx().push(frame.inner() as u32);
+        self.pio_instance.sm0.tx().push(u32::from(frame.inner()));
     }
 
     /// Send a DShot command to all motors
     fn send_command(&mut self, cmd: Command) {
         let frame = Frame::<NormalDshot>::command(cmd, self.telemetry_enabled);
-        self.pio_instance.sm0.tx().push(frame.inner() as u32);
+        self.pio_instance.sm0.tx().push(u32::from(frame.inner()));
     }
 }
 
@@ -272,7 +264,7 @@ impl<'d, PIO: Instance> super::DshotPioTrait<2> for DshotPio<'d, 2, PIO> {
         for (i, &cmd) in command.iter().enumerate() {
             let frame = if cmd < 48 {
                 Frame::<NormalDshot>::command(
-                    unsafe { core::mem::transmute(cmd as u8) },
+                    unsafe { core::mem::transmute::<u8, Command>(cmd as u8) },
                     self.telemetry_enabled
                 )
             } else {
@@ -284,8 +276,8 @@ impl<'d, PIO: Instance> super::DshotPioTrait<2> for DshotPio<'d, 2, PIO> {
                     .ok_or(DshotError::InvalidThrottle)?
             };
             match i {
-                0 => self.pio_instance.sm0.tx().push(frame.inner() as u32),
-                1 => self.pio_instance.sm1.tx().push(frame.inner() as u32),
+                0 => self.pio_instance.sm0.tx().push(u32::from(frame.inner())),
+                1 => self.pio_instance.sm1.tx().push(u32::from(frame.inner())),
                 _ => unreachable!(),
             }
         }
@@ -306,8 +298,8 @@ impl<'d, PIO: Instance> super::DshotPioTrait<2> for DshotPio<'d, 2, PIO> {
             let frame = Frame::<NormalDshot>::new(t.min(1999), self.telemetry_enabled)
                 .ok_or(DshotError::InvalidThrottle)?;
             match i {
-                0 => self.pio_instance.sm0.tx().push(frame.inner() as u32),
-                1 => self.pio_instance.sm1.tx().push(frame.inner() as u32),
+                0 => self.pio_instance.sm0.tx().push(u32::from(frame.inner())),
+                1 => self.pio_instance.sm1.tx().push(u32::from(frame.inner())),
                 _ => unreachable!(),
             }
         }
@@ -317,14 +309,14 @@ impl<'d, PIO: Instance> super::DshotPioTrait<2> for DshotPio<'d, 2, PIO> {
     fn throttle_minimum(&mut self) {
         let frame = Frame::<NormalDshot>::new(0, self.telemetry_enabled)
             .expect("Zero throttle should always be valid");
-        self.pio_instance.sm0.tx().push(frame.inner() as u32);
-        self.pio_instance.sm1.tx().push(frame.inner() as u32);
+        self.pio_instance.sm0.tx().push(u32::from(frame.inner()));
+        self.pio_instance.sm1.tx().push(u32::from(frame.inner()));
     }
 
     fn send_command(&mut self, cmd: Command) {
         let frame = Frame::<NormalDshot>::command(cmd, self.telemetry_enabled);
-        self.pio_instance.sm0.tx().push(frame.inner() as u32);
-        self.pio_instance.sm1.tx().push(frame.inner() as u32);
+        self.pio_instance.sm0.tx().push(u32::from(frame.inner()));
+        self.pio_instance.sm1.tx().push(u32::from(frame.inner()));
     }
 }
 
@@ -333,7 +325,7 @@ impl<'d, PIO: Instance> super::DshotPioTrait<3> for DshotPio<'d, 3, PIO> {
         for (i, &cmd) in command.iter().enumerate() {
             let frame = if cmd < 48 {
                 Frame::<NormalDshot>::command(
-                    unsafe { core::mem::transmute(cmd as u8) },
+                    unsafe { core::mem::transmute::<u8, Command>(cmd as u8) },
                     self.telemetry_enabled
                 )
             } else {
@@ -345,9 +337,9 @@ impl<'d, PIO: Instance> super::DshotPioTrait<3> for DshotPio<'d, 3, PIO> {
                     .ok_or(DshotError::InvalidThrottle)?
             };
             match i {
-                0 => self.pio_instance.sm0.tx().push(frame.inner() as u32),
-                1 => self.pio_instance.sm1.tx().push(frame.inner() as u32),
-                2 => self.pio_instance.sm2.tx().push(frame.inner() as u32),
+                0 => self.pio_instance.sm0.tx().push(u32::from(frame.inner())),
+                1 => self.pio_instance.sm1.tx().push(u32::from(frame.inner())),
+                2 => self.pio_instance.sm2.tx().push(u32::from(frame.inner())),
                 _ => unreachable!(),
             }
         }
@@ -359,9 +351,9 @@ impl<'d, PIO: Instance> super::DshotPioTrait<3> for DshotPio<'d, 3, PIO> {
             let cmd = if rev { Command::SpinDirectonReversed } else { Command::SpinDirectionNormal };
             let frame = Frame::<NormalDshot>::command(cmd, self.telemetry_enabled);
             match i {
-                0 => self.pio_instance.sm0.tx().push(frame.inner() as u32),
-                1 => self.pio_instance.sm1.tx().push(frame.inner() as u32),
-                2 => self.pio_instance.sm2.tx().push(frame.inner() as u32),
+                0 => self.pio_instance.sm0.tx().push(u32::from(frame.inner())),
+                1 => self.pio_instance.sm1.tx().push(u32::from(frame.inner())),
+                2 => self.pio_instance.sm2.tx().push(u32::from(frame.inner())),
                 _ => unreachable!(),
             }
         }
@@ -372,9 +364,9 @@ impl<'d, PIO: Instance> super::DshotPioTrait<3> for DshotPio<'d, 3, PIO> {
             let frame = Frame::<NormalDshot>::new(t.min(1999), self.telemetry_enabled)
                 .ok_or(DshotError::InvalidThrottle)?;
             match i {
-                0 => self.pio_instance.sm0.tx().push(frame.inner() as u32),
-                1 => self.pio_instance.sm1.tx().push(frame.inner() as u32),
-                2 => self.pio_instance.sm2.tx().push(frame.inner() as u32),
+                0 => self.pio_instance.sm0.tx().push(u32::from(frame.inner())),
+                1 => self.pio_instance.sm1.tx().push(u32::from(frame.inner())),
+                2 => self.pio_instance.sm2.tx().push(u32::from(frame.inner())),
                 _ => unreachable!(),
             }
         }
@@ -384,16 +376,16 @@ impl<'d, PIO: Instance> super::DshotPioTrait<3> for DshotPio<'d, 3, PIO> {
     fn throttle_minimum(&mut self) {
         let frame = Frame::<NormalDshot>::new(0, self.telemetry_enabled)
             .expect("Zero throttle should always be valid");
-        self.pio_instance.sm0.tx().push(frame.inner() as u32);
-        self.pio_instance.sm1.tx().push(frame.inner() as u32);
-        self.pio_instance.sm2.tx().push(frame.inner() as u32);
+        self.pio_instance.sm0.tx().push(u32::from(frame.inner()));
+        self.pio_instance.sm1.tx().push(u32::from(frame.inner()));
+        self.pio_instance.sm2.tx().push(u32::from(frame.inner()));
     }
 
     fn send_command(&mut self, cmd: Command) {
         let frame = Frame::<NormalDshot>::command(cmd, self.telemetry_enabled);
-        self.pio_instance.sm0.tx().push(frame.inner() as u32);
-        self.pio_instance.sm1.tx().push(frame.inner() as u32);
-        self.pio_instance.sm2.tx().push(frame.inner() as u32);
+        self.pio_instance.sm0.tx().push(u32::from(frame.inner()));
+        self.pio_instance.sm1.tx().push(u32::from(frame.inner()));
+        self.pio_instance.sm2.tx().push(u32::from(frame.inner()));
     }
 }
 
@@ -402,7 +394,7 @@ impl<'d, PIO: Instance> super::DshotPioTrait<4> for DshotPio<'d, 4, PIO> {
         for (i, &cmd) in command.iter().enumerate() {
             let frame = if cmd < 48 {
                 Frame::<NormalDshot>::command(
-                    unsafe { core::mem::transmute(cmd as u8) },
+                    unsafe { core::mem::transmute::<u8, Command>(cmd as u8) },
                     self.telemetry_enabled
                 )
             } else {
@@ -414,10 +406,10 @@ impl<'d, PIO: Instance> super::DshotPioTrait<4> for DshotPio<'d, 4, PIO> {
                     .ok_or(DshotError::InvalidThrottle)?
             };
             match i {
-                0 => self.pio_instance.sm0.tx().push(frame.inner() as u32),
-                1 => self.pio_instance.sm1.tx().push(frame.inner() as u32),
-                2 => self.pio_instance.sm2.tx().push(frame.inner() as u32),
-                3 => self.pio_instance.sm3.tx().push(frame.inner() as u32),
+                0 => self.pio_instance.sm0.tx().push(u32::from(frame.inner())),
+                1 => self.pio_instance.sm1.tx().push(u32::from(frame.inner())),
+                2 => self.pio_instance.sm2.tx().push(u32::from(frame.inner())),
+                3 => self.pio_instance.sm3.tx().push(u32::from(frame.inner())),
                 _ => unreachable!(),
             }
         }
@@ -429,10 +421,10 @@ impl<'d, PIO: Instance> super::DshotPioTrait<4> for DshotPio<'d, 4, PIO> {
             let cmd = if rev { Command::SpinDirectonReversed } else { Command::SpinDirectionNormal };
             let frame = Frame::<NormalDshot>::command(cmd, self.telemetry_enabled);
             match i {
-                0 => self.pio_instance.sm0.tx().push(frame.inner() as u32),
-                1 => self.pio_instance.sm1.tx().push(frame.inner() as u32),
-                2 => self.pio_instance.sm2.tx().push(frame.inner() as u32),
-                3 => self.pio_instance.sm3.tx().push(frame.inner() as u32),
+                0 => self.pio_instance.sm0.tx().push(u32::from(frame.inner())),
+                1 => self.pio_instance.sm1.tx().push(u32::from(frame.inner())),
+                2 => self.pio_instance.sm2.tx().push(u32::from(frame.inner())),
+                3 => self.pio_instance.sm3.tx().push(u32::from(frame.inner())),
                 _ => unreachable!(),
             }
         }
@@ -443,10 +435,10 @@ impl<'d, PIO: Instance> super::DshotPioTrait<4> for DshotPio<'d, 4, PIO> {
             let frame = Frame::<NormalDshot>::new(t.min(1999), self.telemetry_enabled)
                 .ok_or(DshotError::InvalidThrottle)?;
             match i {
-                0 => self.pio_instance.sm0.tx().push(frame.inner() as u32),
-                1 => self.pio_instance.sm1.tx().push(frame.inner() as u32),
-                2 => self.pio_instance.sm2.tx().push(frame.inner() as u32),
-                3 => self.pio_instance.sm3.tx().push(frame.inner() as u32),
+                0 => self.pio_instance.sm0.tx().push(u32::from(frame.inner())),
+                1 => self.pio_instance.sm1.tx().push(u32::from(frame.inner())),
+                2 => self.pio_instance.sm2.tx().push(u32::from(frame.inner())),
+                3 => self.pio_instance.sm3.tx().push(u32::from(frame.inner())),
                 _ => unreachable!(),
             }
         }
@@ -456,30 +448,26 @@ impl<'d, PIO: Instance> super::DshotPioTrait<4> for DshotPio<'d, 4, PIO> {
     fn throttle_minimum(&mut self) {
         let frame = Frame::<NormalDshot>::new(0, self.telemetry_enabled)
             .expect("Zero throttle should always be valid");
-        self.pio_instance.sm0.tx().push(frame.inner() as u32);
-        self.pio_instance.sm1.tx().push(frame.inner() as u32);
-        self.pio_instance.sm2.tx().push(frame.inner() as u32);
-        self.pio_instance.sm3.tx().push(frame.inner() as u32);
+        self.pio_instance.sm0.tx().push(u32::from(frame.inner()));
+        self.pio_instance.sm1.tx().push(u32::from(frame.inner()));
+        self.pio_instance.sm2.tx().push(u32::from(frame.inner()));
+        self.pio_instance.sm3.tx().push(u32::from(frame.inner()));
     }
 
     fn send_command(&mut self, cmd: Command) {
         let frame = Frame::<NormalDshot>::command(cmd, self.telemetry_enabled);
-        self.pio_instance.sm0.tx().push(frame.inner() as u32);
-        self.pio_instance.sm1.tx().push(frame.inner() as u32);
-        self.pio_instance.sm2.tx().push(frame.inner() as u32);
-        self.pio_instance.sm3.tx().push(frame.inner() as u32);
+        self.pio_instance.sm0.tx().push(u32::from(frame.inner()));
+        self.pio_instance.sm1.tx().push(u32::from(frame.inner()));
+        self.pio_instance.sm2.tx().push(u32::from(frame.inner()));
+        self.pio_instance.sm3.tx().push(u32::from(frame.inner()));
     }
 }
-
-///
-/// Implementing DshotPioAsync (async/await methods)
-///
 
 impl<'d, PIO: Instance> super::DshotPioAsync<1> for DshotPio<'d, 1, PIO> {
     async fn command_async(&mut self, command: [u16; 1]) -> Result<(), DshotError> {
         let frame = if command[0] < 48 {
             Frame::<NormalDshot>::command(
-                unsafe { core::mem::transmute(command[0] as u8) },
+                unsafe { core::mem::transmute::<u8, Command>(command[0] as u8) },
                 self.telemetry_enabled
             )
         } else {
@@ -490,7 +478,7 @@ impl<'d, PIO: Instance> super::DshotPioAsync<1> for DshotPio<'d, 1, PIO> {
             Frame::<NormalDshot>::new(throttle, self.telemetry_enabled)
                 .ok_or(DshotError::InvalidThrottle)?
         };
-        self.pio_instance.sm0.tx().wait_push(frame.inner() as u32).await;
+        self.pio_instance.sm0.tx().wait_push(u32::from(frame.inner())).await;
         Ok(())
     }
 
@@ -501,26 +489,26 @@ impl<'d, PIO: Instance> super::DshotPioAsync<1> for DshotPio<'d, 1, PIO> {
             Command::SpinDirectionNormal
         };
         let frame = Frame::<NormalDshot>::command(cmd, self.telemetry_enabled);
-        self.pio_instance.sm0.tx().wait_push(frame.inner() as u32).await;
+        self.pio_instance.sm0.tx().wait_push(u32::from(frame.inner())).await;
     }
 
     async fn throttle_async(&mut self, throttle: [u16; 1]) -> Result<(), DshotError> {
         let clamped = throttle[0].min(1999);
         let frame = Frame::<NormalDshot>::new(clamped, self.telemetry_enabled)
             .ok_or(DshotError::InvalidThrottle)?;
-        self.pio_instance.sm0.tx().wait_push(frame.inner() as u32).await;
+        self.pio_instance.sm0.tx().wait_push(u32::from(frame.inner())).await;
         Ok(())
     }
 
     async fn throttle_minimum_async(&mut self) {
         let frame = Frame::<NormalDshot>::new(0, self.telemetry_enabled)
             .expect("Zero throttle should always be valid");
-        self.pio_instance.sm0.tx().wait_push(frame.inner() as u32).await;
+        self.pio_instance.sm0.tx().wait_push(u32::from(frame.inner())).await;
     }
 
     async fn send_command_async(&mut self, cmd: Command) {
         let frame = Frame::<NormalDshot>::command(cmd, self.telemetry_enabled);
-        self.pio_instance.sm0.tx().wait_push(frame.inner() as u32).await;
+        self.pio_instance.sm0.tx().wait_push(u32::from(frame.inner())).await;
     }
 }
 
@@ -529,7 +517,7 @@ impl<'d, PIO: Instance> super::DshotPioAsync<2> for DshotPio<'d, 2, PIO> {
         for (i, &cmd) in command.iter().enumerate() {
             let frame = if cmd < 48 {
                 Frame::<NormalDshot>::command(
-                    unsafe { core::mem::transmute(cmd as u8) },
+                    unsafe { core::mem::transmute::<u8, Command>(cmd as u8) },
                     self.telemetry_enabled
                 )
             } else {
@@ -541,8 +529,8 @@ impl<'d, PIO: Instance> super::DshotPioAsync<2> for DshotPio<'d, 2, PIO> {
                     .ok_or(DshotError::InvalidThrottle)?
             };
             match i {
-                0 => self.pio_instance.sm0.tx().wait_push(frame.inner() as u32).await,
-                1 => self.pio_instance.sm1.tx().wait_push(frame.inner() as u32).await,
+                0 => self.pio_instance.sm0.tx().wait_push(u32::from(frame.inner())).await,
+                1 => self.pio_instance.sm1.tx().wait_push(u32::from(frame.inner())).await,
                 _ => unreachable!(),
             }
         }
@@ -554,8 +542,8 @@ impl<'d, PIO: Instance> super::DshotPioAsync<2> for DshotPio<'d, 2, PIO> {
             let cmd = if rev { Command::SpinDirectonReversed } else { Command::SpinDirectionNormal };
             let frame = Frame::<NormalDshot>::command(cmd, self.telemetry_enabled);
             match i {
-                0 => self.pio_instance.sm0.tx().wait_push(frame.inner() as u32).await,
-                1 => self.pio_instance.sm1.tx().wait_push(frame.inner() as u32).await,
+                0 => self.pio_instance.sm0.tx().wait_push(u32::from(frame.inner())).await,
+                1 => self.pio_instance.sm1.tx().wait_push(u32::from(frame.inner())).await,
                 _ => unreachable!(),
             }
         }
@@ -566,8 +554,8 @@ impl<'d, PIO: Instance> super::DshotPioAsync<2> for DshotPio<'d, 2, PIO> {
             let frame = Frame::<NormalDshot>::new(t.min(1999), self.telemetry_enabled)
                 .ok_or(DshotError::InvalidThrottle)?;
             match i {
-                0 => self.pio_instance.sm0.tx().wait_push(frame.inner() as u32).await,
-                1 => self.pio_instance.sm1.tx().wait_push(frame.inner() as u32).await,
+                0 => self.pio_instance.sm0.tx().wait_push(u32::from(frame.inner())).await,
+                1 => self.pio_instance.sm1.tx().wait_push(u32::from(frame.inner())).await,
                 _ => unreachable!(),
             }
         }
@@ -577,14 +565,14 @@ impl<'d, PIO: Instance> super::DshotPioAsync<2> for DshotPio<'d, 2, PIO> {
     async fn throttle_minimum_async(&mut self) {
         let frame = Frame::<NormalDshot>::new(0, self.telemetry_enabled)
             .expect("Zero throttle should always be valid");
-        self.pio_instance.sm0.tx().wait_push(frame.inner() as u32).await;
-        self.pio_instance.sm1.tx().wait_push(frame.inner() as u32).await;
+        self.pio_instance.sm0.tx().wait_push(u32::from(frame.inner())).await;
+        self.pio_instance.sm1.tx().wait_push(u32::from(frame.inner())).await;
     }
 
     async fn send_command_async(&mut self, cmd: Command) {
         let frame = Frame::<NormalDshot>::command(cmd, self.telemetry_enabled);
-        self.pio_instance.sm0.tx().wait_push(frame.inner() as u32).await;
-        self.pio_instance.sm1.tx().wait_push(frame.inner() as u32).await;
+        self.pio_instance.sm0.tx().wait_push(u32::from(frame.inner())).await;
+        self.pio_instance.sm1.tx().wait_push(u32::from(frame.inner())).await;
     }
 }
 
@@ -593,7 +581,7 @@ impl<'d, PIO: Instance> super::DshotPioAsync<3> for DshotPio<'d, 3, PIO> {
         for (i, &cmd) in command.iter().enumerate() {
             let frame = if cmd < 48 {
                 Frame::<NormalDshot>::command(
-                    unsafe { core::mem::transmute(cmd as u8) },
+                    unsafe { core::mem::transmute::<u8, Command>(cmd as u8) },
                     self.telemetry_enabled
                 )
             } else {
@@ -605,9 +593,9 @@ impl<'d, PIO: Instance> super::DshotPioAsync<3> for DshotPio<'d, 3, PIO> {
                     .ok_or(DshotError::InvalidThrottle)?
             };
             match i {
-                0 => self.pio_instance.sm0.tx().wait_push(frame.inner() as u32).await,
-                1 => self.pio_instance.sm1.tx().wait_push(frame.inner() as u32).await,
-                2 => self.pio_instance.sm2.tx().wait_push(frame.inner() as u32).await,
+                0 => self.pio_instance.sm0.tx().wait_push(u32::from(frame.inner())).await,
+                1 => self.pio_instance.sm1.tx().wait_push(u32::from(frame.inner())).await,
+                2 => self.pio_instance.sm2.tx().wait_push(u32::from(frame.inner())).await,
                 _ => unreachable!(),
             }
         }
@@ -619,9 +607,9 @@ impl<'d, PIO: Instance> super::DshotPioAsync<3> for DshotPio<'d, 3, PIO> {
             let cmd = if rev { Command::SpinDirectonReversed } else { Command::SpinDirectionNormal };
             let frame = Frame::<NormalDshot>::command(cmd, self.telemetry_enabled);
             match i {
-                0 => self.pio_instance.sm0.tx().wait_push(frame.inner() as u32).await,
-                1 => self.pio_instance.sm1.tx().wait_push(frame.inner() as u32).await,
-                2 => self.pio_instance.sm2.tx().wait_push(frame.inner() as u32).await,
+                0 => self.pio_instance.sm0.tx().wait_push(u32::from(frame.inner())).await,
+                1 => self.pio_instance.sm1.tx().wait_push(u32::from(frame.inner())).await,
+                2 => self.pio_instance.sm2.tx().wait_push(u32::from(frame.inner())).await,
                 _ => unreachable!(),
             }
         }
@@ -632,9 +620,9 @@ impl<'d, PIO: Instance> super::DshotPioAsync<3> for DshotPio<'d, 3, PIO> {
             let frame = Frame::<NormalDshot>::new(t.min(1999), self.telemetry_enabled)
                 .ok_or(DshotError::InvalidThrottle)?;
             match i {
-                0 => self.pio_instance.sm0.tx().wait_push(frame.inner() as u32).await,
-                1 => self.pio_instance.sm1.tx().wait_push(frame.inner() as u32).await,
-                2 => self.pio_instance.sm2.tx().wait_push(frame.inner() as u32).await,
+                0 => self.pio_instance.sm0.tx().wait_push(u32::from(frame.inner())).await,
+                1 => self.pio_instance.sm1.tx().wait_push(u32::from(frame.inner())).await,
+                2 => self.pio_instance.sm2.tx().wait_push(u32::from(frame.inner())).await,
                 _ => unreachable!(),
             }
         }
@@ -644,16 +632,16 @@ impl<'d, PIO: Instance> super::DshotPioAsync<3> for DshotPio<'d, 3, PIO> {
     async fn throttle_minimum_async(&mut self) {
         let frame = Frame::<NormalDshot>::new(0, self.telemetry_enabled)
             .expect("Zero throttle should always be valid");
-        self.pio_instance.sm0.tx().wait_push(frame.inner() as u32).await;
-        self.pio_instance.sm1.tx().wait_push(frame.inner() as u32).await;
-        self.pio_instance.sm2.tx().wait_push(frame.inner() as u32).await;
+        self.pio_instance.sm0.tx().wait_push(u32::from(frame.inner())).await;
+        self.pio_instance.sm1.tx().wait_push(u32::from(frame.inner())).await;
+        self.pio_instance.sm2.tx().wait_push(u32::from(frame.inner())).await;
     }
 
     async fn send_command_async(&mut self, cmd: Command) {
         let frame = Frame::<NormalDshot>::command(cmd, self.telemetry_enabled);
-        self.pio_instance.sm0.tx().wait_push(frame.inner() as u32).await;
-        self.pio_instance.sm1.tx().wait_push(frame.inner() as u32).await;
-        self.pio_instance.sm2.tx().wait_push(frame.inner() as u32).await;
+        self.pio_instance.sm0.tx().wait_push(u32::from(frame.inner())).await;
+        self.pio_instance.sm1.tx().wait_push(u32::from(frame.inner())).await;
+        self.pio_instance.sm2.tx().wait_push(u32::from(frame.inner())).await;
     }
 }
 
@@ -662,7 +650,7 @@ impl<'d, PIO: Instance> super::DshotPioAsync<4> for DshotPio<'d, 4, PIO> {
         for (i, &cmd) in command.iter().enumerate() {
             let frame = if cmd < 48 {
                 Frame::<NormalDshot>::command(
-                    unsafe { core::mem::transmute(cmd as u8) },
+                    unsafe { core::mem::transmute::<u8, Command>(cmd as u8) },
                     self.telemetry_enabled
                 )
             } else {
@@ -674,10 +662,10 @@ impl<'d, PIO: Instance> super::DshotPioAsync<4> for DshotPio<'d, 4, PIO> {
                     .ok_or(DshotError::InvalidThrottle)?
             };
             match i {
-                0 => self.pio_instance.sm0.tx().wait_push(frame.inner() as u32).await,
-                1 => self.pio_instance.sm1.tx().wait_push(frame.inner() as u32).await,
-                2 => self.pio_instance.sm2.tx().wait_push(frame.inner() as u32).await,
-                3 => self.pio_instance.sm3.tx().wait_push(frame.inner() as u32).await,
+                0 => self.pio_instance.sm0.tx().wait_push(u32::from(frame.inner())).await,
+                1 => self.pio_instance.sm1.tx().wait_push(u32::from(frame.inner())).await,
+                2 => self.pio_instance.sm2.tx().wait_push(u32::from(frame.inner())).await,
+                3 => self.pio_instance.sm3.tx().wait_push(u32::from(frame.inner())).await,
                 _ => unreachable!(),
             }
         }
@@ -689,10 +677,10 @@ impl<'d, PIO: Instance> super::DshotPioAsync<4> for DshotPio<'d, 4, PIO> {
             let cmd = if rev { Command::SpinDirectonReversed } else { Command::SpinDirectionNormal };
             let frame = Frame::<NormalDshot>::command(cmd, self.telemetry_enabled);
             match i {
-                0 => self.pio_instance.sm0.tx().wait_push(frame.inner() as u32).await,
-                1 => self.pio_instance.sm1.tx().wait_push(frame.inner() as u32).await,
-                2 => self.pio_instance.sm2.tx().wait_push(frame.inner() as u32).await,
-                3 => self.pio_instance.sm3.tx().wait_push(frame.inner() as u32).await,
+                0 => self.pio_instance.sm0.tx().wait_push(u32::from(frame.inner())).await,
+                1 => self.pio_instance.sm1.tx().wait_push(u32::from(frame.inner())).await,
+                2 => self.pio_instance.sm2.tx().wait_push(u32::from(frame.inner())).await,
+                3 => self.pio_instance.sm3.tx().wait_push(u32::from(frame.inner())).await,
                 _ => unreachable!(),
             }
         }
@@ -703,10 +691,10 @@ impl<'d, PIO: Instance> super::DshotPioAsync<4> for DshotPio<'d, 4, PIO> {
             let frame = Frame::<NormalDshot>::new(t.min(1999), self.telemetry_enabled)
                 .ok_or(DshotError::InvalidThrottle)?;
             match i {
-                0 => self.pio_instance.sm0.tx().wait_push(frame.inner() as u32).await,
-                1 => self.pio_instance.sm1.tx().wait_push(frame.inner() as u32).await,
-                2 => self.pio_instance.sm2.tx().wait_push(frame.inner() as u32).await,
-                3 => self.pio_instance.sm3.tx().wait_push(frame.inner() as u32).await,
+                0 => self.pio_instance.sm0.tx().wait_push(u32::from(frame.inner())).await,
+                1 => self.pio_instance.sm1.tx().wait_push(u32::from(frame.inner())).await,
+                2 => self.pio_instance.sm2.tx().wait_push(u32::from(frame.inner())).await,
+                3 => self.pio_instance.sm3.tx().wait_push(u32::from(frame.inner())).await,
                 _ => unreachable!(),
             }
         }
@@ -716,17 +704,17 @@ impl<'d, PIO: Instance> super::DshotPioAsync<4> for DshotPio<'d, 4, PIO> {
     async fn throttle_minimum_async(&mut self) {
         let frame = Frame::<NormalDshot>::new(0, self.telemetry_enabled)
             .expect("Zero throttle should always be valid");
-        self.pio_instance.sm0.tx().wait_push(frame.inner() as u32).await;
-        self.pio_instance.sm1.tx().wait_push(frame.inner() as u32).await;
-        self.pio_instance.sm2.tx().wait_push(frame.inner() as u32).await;
-        self.pio_instance.sm3.tx().wait_push(frame.inner() as u32).await;
+        self.pio_instance.sm0.tx().wait_push(u32::from(frame.inner())).await;
+        self.pio_instance.sm1.tx().wait_push(u32::from(frame.inner())).await;
+        self.pio_instance.sm2.tx().wait_push(u32::from(frame.inner())).await;
+        self.pio_instance.sm3.tx().wait_push(u32::from(frame.inner())).await;
     }
 
     async fn send_command_async(&mut self, cmd: Command) {
         let frame = Frame::<NormalDshot>::command(cmd, self.telemetry_enabled);
-        self.pio_instance.sm0.tx().wait_push(frame.inner() as u32).await;
-        self.pio_instance.sm1.tx().wait_push(frame.inner() as u32).await;
-        self.pio_instance.sm2.tx().wait_push(frame.inner() as u32).await;
-        self.pio_instance.sm3.tx().wait_push(frame.inner() as u32).await;
+        self.pio_instance.sm0.tx().wait_push(u32::from(frame.inner())).await;
+        self.pio_instance.sm1.tx().wait_push(u32::from(frame.inner())).await;
+        self.pio_instance.sm2.tx().wait_push(u32::from(frame.inner())).await;
+        self.pio_instance.sm3.tx().wait_push(u32::from(frame.inner())).await;
     }
 }
