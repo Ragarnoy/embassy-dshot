@@ -1,0 +1,53 @@
+[package]
+name = "embassy-dshot-examples"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[features]
+default = ["rp2350"]
+rp2040 = ["embassy-dshot/rp2040", "embassy-rp/rp2040"]
+rp2350 = ["embassy-dshot/rp2350", "embassy-rp/rp235xa"]
+
+[dependencies]
+embassy-dshot = { path = "..", features = ["defmt"] }
+embassy-executor = { version = "0.9.1", features = ["arch-cortex-m", "executor-thread"] }
+embassy-time = { version = "0.5.0", features = ["tick-hz-1_000_000"] }
+embassy-rp = { version = "0.9.0", features = ["time-driver"] }
+defmt = "1.0.1"
+defmt-rtt = "1.1.0"
+defmt-test = "0.3"
+panic-probe = { version = "1.0.0", features = ["print-defmt"] }
+cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
+cortex-m-rt = "0.7"
+dshot-frame = "0.2"
+
+[[bin]]
+name = "single_esc"
+path = "src/single_esc.rs"
+
+[[bin]]
+name = "twin_engine"
+path = "src/twin_engine.rs"
+
+[[bin]]
+name = "bringup"
+path = "src/bringup.rs"
+
+[[bin]]
+name = "bdshot_test"
+path = "src/bdshot_test.rs"
+
+[[bin]]
+name = "esc_command_test"
+path = "src/esc_command_test.rs"
+
+[[test]]
+name = "on_target_tests"
+harness = false
+
+[profile.release]
+debug = 2
+lto = false
+opt-level = 2

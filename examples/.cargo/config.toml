@@ -1,0 +1,14 @@
+# Default target: RP2350 (Pico 2)
+# For RP2040: cargo build --features rp2040 --target thumbv6m-none-eabi
+
+[target.thumbv8m.main-none-eabihf]
+runner = "probe-rs run --chip RP235x"
+
+[target.thumbv6m-none-eabi]
+runner = "probe-rs run --chip RP2040"
+
+[build]
+target = "thumbv8m.main-none-eabihf"
+
+[env]
+DEFMT_LOG = "debug"
