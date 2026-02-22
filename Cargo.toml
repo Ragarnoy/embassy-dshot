@@ -17,22 +17,13 @@ targets = ["thumbv6m-none-eabi"]
 [features]
 default = []
 std = []
-rp2040 = ["dep:embassy-rp", "embassy-rp/rp2040"]
-rp2350 = ["dep:embassy-rp", "embassy-rp/rp235xa"]
+defmt = ["dep:defmt"]
+rp2040 = ["dep:embassy-rp", "dep:embassy-time", "embassy-rp/rp2040"]
+rp2350 = ["dep:embassy-rp", "dep:embassy-time", "embassy-rp/rp235xa"]
 
 [dependencies]
 dshot-frame = "0.2.1"
 embassy-rp = { version = "0.9.0", optional = true, default-features = false }
-
-[dev-dependencies]
-embassy-executor = { version = "0.9.1", features = ["arch-cortex-m", "executor-thread"] }
-embassy-time = { version = "0.5.0", features = ["tick-hz-1_000_000"] }
-defmt = "1.0.1"
-defmt-rtt = "1.1.0"
-panic-probe = { version = "1.0.0", features = ["print-defmt"] }
-cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
-cortex-m-rt = "0.7"
-
-[[example]]
-name = "async_quadcopter"
-required-features = ["rp2040"]
+embassy-time = { version = "0.5.0", optional = true }
+defmt = { version = "1.0", optional = true }
+fixed = "1.29"
