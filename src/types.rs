@@ -1,4 +1,3 @@
-/// Error types for `DShot` operations
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum DshotError {
@@ -23,18 +22,9 @@ pub struct Telemetry {
 }
 
 impl Telemetry {
-    /// Convert eRPM to mechanical RPM
-    ///
-    /// Formula: RPM = eRPM / (`motor_poles` / 2)
-    ///
-    /// # Example
-    /// ```ignore
-    /// let telemetry = Telemetry { erpm: 10000, period_us: Some(6000) };
-    /// let rpm = telemetry.rpm(14); // 14-pole motor
-    /// assert_eq!(rpm, 1428); // 10000 / 7
-    /// ```
+    /// Convert eRPM to mechanical RPM: `eRPM / (motor_poles / 2)`.
     #[must_use]
-    #[allow(clippy::cast_lossless)] // as cast required for const fn
+    #[allow(clippy::cast_lossless)]
     pub const fn rpm(&self, motor_poles: u8) -> u32 {
         if motor_poles < 2 {
             return 0;

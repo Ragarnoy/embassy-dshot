@@ -8,11 +8,8 @@ use embassy_rp::pio::{
 use embassy_rp::interrupt::typelevel::Binding;
 use super::{DshotSpeed, THROTTLE_IDLE, make_command_frame};
 
-/// DShot TX PIO program (8 PIO cycles per bit)
-///
-/// Frame data must be in the LOWER 16 bits of the 32-bit word pushed to TX FIFO.
-/// `out null, 16` discards the upper 16 zero bits, positioning the frame for
-/// MSB-first output via subsequent `out` instructions.
+// DShot TX PIO program (8 PIO cycles per bit).
+// Frame in lower 16 bits of TX FIFO word, sent MSB-first.
 macro_rules! dshot_tx_program {
     () => {
         pio_asm!(
@@ -43,9 +40,7 @@ macro_rules! dshot_tx_program {
     };
 }
 
-// ==================== DshotPio (unidirectional TX, 1-4 motors) ====================
-
-/// DShot PIO driver for Embassy RP (1-4 motors)
+/// Unidirectional `DShot` PIO driver (1-4 motors).
 pub struct DshotPio<'a, const N: usize, PIO: Instance> {
     pio_instance: Pio<'a, PIO>,
 }
@@ -98,7 +93,7 @@ macro_rules! impl_dshot_traits {
             fn command(&mut self, command: [u16; $n]) -> Result<(), DshotError> {
                 $(
                     let frame = make_command_frame(command[$idx])?;
-                    self.pio_instance.$sm.tx().push(frame.inner() as u32);
+                    self.pio_instance.$sm.tx().push(u32::from(frame.inner()));
                 )+
                 Ok(())
             }
@@ -111,7 +106,7 @@ macro_rules! impl_dshot_traits {
                         Command::SpinDirectionNormal
                     };
                     let frame = Frame::<NormalDshot>::command(cmd, false);
-                    self.pio_instance.$sm.tx().push(frame.inner() as u32);
+                    self.pio_instance.$sm.tx().push(u32::from(frame.inner()));
                 )+
             }
 
@@ -119,7 +114,7 @@ macro_rules! impl_dshot_traits {
                 $(
                     let frame = Frame::<NormalDshot>::new(throttle[$idx].min(1999), false)
                         .ok_or(DshotError::InvalidThrottle)?;
-                    self.pio_instance.$sm.tx().push(frame.inner() as u32);
+                    self.pio_instance.$sm.tx().push(u32::from(frame.inner()));
                 )+
                 Ok(())
             }
@@ -128,14 +123,14 @@ macro_rules! impl_dshot_traits {
                 let frame = Frame::<NormalDshot>::new(THROTTLE_IDLE, false)
                     .expect("Idle throttle should always be valid");
                 $(
-                    self.pio_instance.$sm.tx().push(frame.inner() as u32);
+                    self.pio_instance.$sm.tx().push(u32::from(frame.inner()));
                 )+
             }
 
             fn send_command(&mut self, cmd: Command) {
                 let frame = Frame::<NormalDshot>::command(cmd, false);
                 $(
-                    self.pio_instance.$sm.tx().push(frame.inner() as u32);
+                    self.pio_instance.$sm.tx().push(u32::from(frame.inner()));
                 )+
             }
 
@@ -150,7 +145,7 @@ macro_rules! impl_dshot_traits {
             async fn command_async(&mut self, command: [u16; $n]) -> Result<(), DshotError> {
                 $(
                     let frame = make_command_frame(command[$idx])?;
-                    self.pio_instance.$sm.tx().wait_push(frame.inner() as u32).await;
+                    self.pio_instance.$sm.tx().wait_push(u32::from(frame.inner())).await;
                 )+
                 Ok(())
             }
@@ -163,7 +158,7 @@ macro_rules! impl_dshot_traits {
                         Command::SpinDirectionNormal
                     };
                     let frame = Frame::<NormalDshot>::command(cmd, false);
-                    self.pio_instance.$sm.tx().wait_push(frame.inner() as u32).await;
+                    self.pio_instance.$sm.tx().wait_push(u32::from(frame.inner())).await;
                 )+
             }
 
@@ -171,7 +166,7 @@ macro_rules! impl_dshot_traits {
                 $(
                     let frame = Frame::<NormalDshot>::new(throttle[$idx].min(1999), false)
                         .ok_or(DshotError::InvalidThrottle)?;
-                    self.pio_instance.$sm.tx().wait_push(frame.inner() as u32).await;
+                    self.pio_instance.$sm.tx().wait_push(u32::from(frame.inner())).await;
                 )+
                 Ok(())
             }
@@ -180,14 +175,14 @@ macro_rules! impl_dshot_traits {
                 let frame = Frame::<NormalDshot>::new(THROTTLE_IDLE, false)
                     .expect("Idle throttle should always be valid");
                 $(
-                    self.pio_instance.$sm.tx().wait_push(frame.inner() as u32).await;
+                    self.pio_instance.$sm.tx().wait_push(u32::from(frame.inner())).await;
                 )+
             }
 
             async fn send_command_async(&mut self, cmd: Command) {
                 let frame = Frame::<NormalDshot>::command(cmd, false);
                 $(
-                    self.pio_instance.$sm.tx().wait_push(frame.inner() as u32).await;
+                    self.pio_instance.$sm.tx().wait_push(u32::from(frame.inner())).await;
                 )+
             }
 

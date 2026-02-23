@@ -11,35 +11,20 @@ use embassy_rp::interrupt::typelevel::Binding;
 use embassy_time::{with_timeout, Duration, Timer};
 use super::{DshotSpeed, THROTTLE_IDLE, telemetry_to_erpm};
 
-// ==================== BidirDshotPio (single ESC, bidirectional) ====================
-
-/// Bidirectional DShot PIO driver for single ESC with telemetry support
+/// Bidirectional `DShot` PIO driver for single ESC with telemetry.
 ///
-/// Uses a single PIO program with both TX and RX phases, based on the
-/// pico-bidir-dshot reference implementation. The ESC responds with
-/// GCR-encoded eRPM telemetry on the same signal wire.
-///
-/// **Supported speeds:** DShot150, DShot300, DShot600.
-/// DShot1200 is **not supported** for bidirectional mode — the RX pulse-width
-/// measurement loop cannot resolve the shorter bit periods at 1.2Mbit/s.
-/// Use `DshotPio` (unidirectional) for DShot1200.
+/// Supports `DShot150`, `DShot300`, `DShot600`. `DShot1200` is not supported
+/// (panics at construction).
 pub struct BidirDshotPio<'a, PIO: Instance> {
     pio_instance: Pio<'a, PIO>,
-    #[allow(dead_code)] // retained for future set_speed() / release()
-    pin: Pin<'a, PIO>,
-    #[allow(dead_code)]
-    speed: DshotSpeed,
+    _pin: Pin<'a, PIO>,
     origin: u8,
 }
 
 impl<'a, PIO: Instance> BidirDshotPio<'a, PIO> {
-    /// Create a new bidirectional DShot driver for a single ESC
-    ///
     /// # Panics
     ///
-    /// Panics if `speed` is `DshotSpeed::DShot1200` — bidirectional mode is not
-    /// supported at 1.2Mbit/s because the PIO RX pulse-width measurement loop
-    /// cannot resolve the shorter bit periods.
+    /// Panics if `speed` is `DshotSpeed::DShot1200`.
     pub fn new(
         pio: Peri<'a, PIO>,
         irq: impl Binding<PIO::Interrupt, InterruptHandler<PIO>>,
@@ -54,7 +39,6 @@ impl<'a, PIO: Instance> BidirDshotPio<'a, PIO> {
         let mut pio = Pio::new(pio, irq);
         let mut pin = pio.common.make_pio_pin(pin0);
 
-        // Pull-up for bidirectional DShot (ESC pulls LOW for data)
         pin.set_pull(Pull::Up);
 
         // Bidirectional DShot PIO program based on pico-bidir-dshot reference.
@@ -66,19 +50,11 @@ impl<'a, PIO: Instance> BidirDshotPio<'a, PIO> {
         //
         // TX Phase (32 cycles per bit):
         //   14 cycles LOW, 14 cycles data bit (inverted), 11 cycles HIGH, 1 jmp
-        //   Pin direction switched inside PIO via set pindirs
         //
         // RX Phase (pulse-width measurement):
         //   Wait for falling edge, measure pulse widths using counting loops.
         //   21 GCR-encoded bits decoded to 16-bit telemetry + CRC.
-        //
-        //   The wait loop uses a tight 2-cycle poll (matching the reference
-        //   pico-bidir-dshot implementation) so the first pulse measurement
-        //   starts within 0-2 PIO cycles of the falling edge. A loose wait
-        //   loop (e.g. 30 cycles/iter) would consume up to 94% of the first
-        //   bit period at DShot600, desynchronizing the entire GCR decode.
-        //   No PIO-level timeout is needed: the software `with_timeout` +
-        //   `sync_pc()` handles the no-response case.
+        //   Tight 2-cycle wait loop matches reference implementation.
         let prg = pio_asm!(
             ".wrap_target"
             "push block"                    // Push any pending RX data
@@ -156,7 +132,6 @@ impl<'a, PIO: Instance> BidirDshotPio<'a, PIO> {
 
         cfg.fifo_join = FifoJoin::Duplex;
 
-        // All pin config points to the same signal pin
         cfg.set_jmp_pin(&pin);
         cfg.set_set_pins(&[&pin]);
         cfg.set_out_pins(&[&pin]);
@@ -166,22 +141,16 @@ impl<'a, PIO: Instance> BidirDshotPio<'a, PIO> {
         pio.sm0.set_pin_dirs(Direction::Out, &[&pin]);
         pio.sm0.restart();
         pio.sm0.set_enable(true);
-        // Reference sets clock divider AFTER enabling
         pio.sm0.set_clock_divider(speed.bidir_pio_clock_divider());
 
         Self {
             pio_instance: pio,
-            pin,
-            speed,
+            _pin: pin,
             origin,
         }
     }
 
-    /// Sync the PIO program counter to ensure we're ready to send.
-    ///
-    /// If the SM is not at the expected position (pull block at origin+2),
-    /// clear the ISR (to prevent stale partial RX data from contaminating
-    /// the next frame) and force a jump to set pindirs (origin+1).
+    /// Reset PIO to the pull-block position if it drifted (e.g. telemetry timeout).
     fn sync_pc(&mut self) {
         let expected_pc = self.origin + 2;
         let current_pc = self.pio_instance.sm0.get_addr();
@@ -192,7 +161,7 @@ impl<'a, PIO: Instance> BidirDshotPio<'a, PIO> {
             unsafe { self.pio_instance.sm0.exec_instr(0xA0C3) };
 
             // Construct unconditional JMP instruction: opcode 000, no delay, condition 000
-            let jmp_instr = (self.origin + 1) as u16 & 0x1F;
+            let jmp_instr = u16::from(self.origin + 1) & 0x1F;
             unsafe { self.pio_instance.sm0.exec_instr(jmp_instr) };
         }
     }
@@ -201,14 +170,10 @@ impl<'a, PIO: Instance> BidirDshotPio<'a, PIO> {
     async fn send_and_receive_raw(&mut self, frame_raw: u16) -> Result<u32, DshotError> {
         // Clear stale RX data
         while self.pio_instance.sm0.rx().try_pull().is_some() {}
-
-        // Sync PC to expected position
         self.sync_pc();
 
-        // Send inverted frame (bidir DShot requirement)
-        let tx_data = !frame_raw as u32;
+        let tx_data = u32::from(!frame_raw); // bidir DShot sends inverted
 
-        // TX with timeout
         if with_timeout(
             Duration::from_millis(10),
             self.pio_instance.sm0.tx().wait_push(tx_data),
@@ -219,7 +184,6 @@ impl<'a, PIO: Instance> BidirDshotPio<'a, PIO> {
             return Err(DshotError::TelemetryTimeout);
         }
 
-        // RX with timeout (~500us should be plenty for round-trip)
         let rx_data = with_timeout(
             Duration::from_micros(500),
             self.pio_instance.sm0.rx().wait_pull(),
@@ -237,13 +201,9 @@ impl<'a, PIO: Instance> BidirDshotPio<'a, PIO> {
     fn decode_telemetry(rx_data: u32) -> Result<Telemetry, DshotError> {
         // Decode GCR (21 bits -> 16 bits)
         let raw_16 = gcr_decode(rx_data).ok_or(DshotError::GcrDecodeError)?;
-
-        // Verify CRC: XOR all 4 nibbles should equal 0x0F
         if !verify_telemetry_crc(raw_16) {
             return Err(DshotError::InvalidTelemetryCrc);
         }
-
-        // Extract 12-bit eRPM data (remove checksum nibble)
         let erpm_12 = raw_16 >> 4;
         let (erpm, period_us) = telemetry_to_erpm(erpm_12);
 
@@ -256,10 +216,12 @@ impl<'a, PIO: Instance> BidirDshotPio<'a, PIO> {
         Self::decode_telemetry(rx_data)
     }
 
-    /// Send throttle and read raw RX data + decoded telemetry
+    /// Like `throttle_with_telemetry` but also returns the raw RX data for debugging.
     ///
-    /// Returns `(raw_rx_data, Result<Telemetry, DshotError>)`.
-    /// Useful for debugging GCR decode issues.
+    /// # Errors
+    ///
+    /// Returns `DshotError::InvalidThrottle` if throttle is out of range,
+    /// or a telemetry error if the ESC does not respond.
     pub async fn throttle_with_telemetry_raw(&mut self, throttle: u16) -> Result<(u32, Result<Telemetry, DshotError>), DshotError> {
         let frame = Frame::<BidirectionalDshot>::new(throttle, true)
             .ok_or(DshotError::InvalidThrottle)?;
@@ -267,46 +229,37 @@ impl<'a, PIO: Instance> BidirDshotPio<'a, PIO> {
         Ok((rx_data, Self::decode_telemetry(rx_data)))
     }
 
-    /// Send throttle command and read telemetry response
+    /// Send throttle and read eRPM telemetry response.
     ///
-    /// Returns eRPM telemetry if the ESC responds, or an error if:
-    /// - Throttle value is invalid
-    /// - ESC doesn't respond (timeout)
-    /// - Response has invalid GCR encoding
-    /// - Response CRC check fails
+    /// # Errors
+    ///
+    /// Returns `DshotError::InvalidThrottle` if throttle is out of range,
+    /// or a telemetry error if the ESC does not respond.
     pub async fn throttle_with_telemetry(&mut self, throttle: u16) -> Result<Telemetry, DshotError> {
         let frame = Frame::<BidirectionalDshot>::new(throttle, true)
             .ok_or(DshotError::InvalidThrottle)?;
         self.send_and_read_telemetry(frame.inner()).await
     }
 
-    /// Send a DShot command and read telemetry response
+    /// Send a `DShot` command and read telemetry response.
     ///
-    /// Use this to send commands like `Command::MotorStop` while reading
-    /// back eRPM telemetry from the ESC.
+    /// # Errors
+    ///
+    /// Returns a telemetry error if the ESC does not respond or CRC fails.
     pub async fn command_with_telemetry(&mut self, cmd: Command) -> Result<Telemetry, DshotError> {
         let frame = Frame::<BidirectionalDshot>::command(cmd, true);
         self.send_and_read_telemetry(frame.inner()).await
     }
 
-    /// Send a DShot command (0-47) in bidirectional mode
-    ///
-    /// Use `Command::MotorStop` for arming/disarming the ESC.
     pub fn send_command(&mut self, cmd: Command) {
         while self.pio_instance.sm0.rx().try_pull().is_some() {}
         self.sync_pc();
         let frame = Frame::<BidirectionalDshot>::command(cmd, false);
-        self.pio_instance.sm0.tx().push(!frame.inner() as u32);
+        self.pio_instance.sm0.tx().push(u32::from(!frame.inner()));
     }
 
-    /// Send a DShot command repeatedly in bidirectional mode
-    ///
-    /// Many DShot commands require being sent multiple consecutive times to
-    /// take effect (typically 6 for settings, 10 for beep protocol).
-    ///
-    /// A 300us delay between sends ensures the PIO TX+RX cycle completes
-    /// before the next frame, preventing `sync_pc()` from interrupting
-    /// a frame in progress.
+    /// Send a `DShot` command repeatedly (6x for settings, 10x for beep).
+    /// 300us delay between sends to let the PIO TX+RX cycle complete.
     pub async fn send_command_repeated_async(&mut self, cmd: Command, count: u8) {
         for _ in 0..count {
             self.send_command_async(cmd).await;
@@ -314,42 +267,38 @@ impl<'a, PIO: Instance> BidirDshotPio<'a, PIO> {
         }
     }
 
-    /// Send a DShot command asynchronously in bidirectional mode
     pub async fn send_command_async(&mut self, cmd: Command) {
         while self.pio_instance.sm0.rx().try_pull().is_some() {}
         self.sync_pc();
         let frame = Frame::<BidirectionalDshot>::command(cmd, false);
-        self.pio_instance.sm0.tx().wait_push(!frame.inner() as u32).await;
+        self.pio_instance.sm0.tx().wait_push(u32::from(!frame.inner())).await;
     }
 
-    /// Send idle throttle (DShot value 48, bidirectional mode)
+    /// # Panics
     ///
-    /// The motor may creep slightly. Use `send_command(Command::MotorStop)` to fully stop.
+    /// Panics if the idle throttle frame cannot be constructed (should never happen).
     pub fn throttle_idle(&mut self) {
         while self.pio_instance.sm0.rx().try_pull().is_some() {}
         self.sync_pc();
         let frame = Frame::<BidirectionalDshot>::new(THROTTLE_IDLE, false)
             .expect("Idle throttle should always be valid");
-        self.pio_instance.sm0.tx().push(!frame.inner() as u32);
+        self.pio_instance.sm0.tx().push(u32::from(!frame.inner()));
     }
 
-    /// Send idle throttle asynchronously (DShot value 48)
+    /// # Panics
     ///
-    /// The motor may creep slightly. Use `send_command_async(Command::MotorStop)` to fully stop.
+    /// Panics if the idle throttle frame cannot be constructed (should never happen).
     pub async fn throttle_idle_async(&mut self) {
         while self.pio_instance.sm0.rx().try_pull().is_some() {}
         self.sync_pc();
         let frame = Frame::<BidirectionalDshot>::new(THROTTLE_IDLE, false)
             .expect("Idle throttle should always be valid");
-        self.pio_instance.sm0.tx().wait_push(!frame.inner() as u32).await;
+        self.pio_instance.sm0.tx().wait_push(u32::from(!frame.inner())).await;
     }
 
-    /// Arm ESC by sending `MotorStop` at ~1kHz for the given duration
-    ///
-    /// ESCs require continuous `MotorStop` frames for 1-2 seconds before
-    /// they accept throttle commands. This convenience method replaces the
-    /// common arming loop pattern.
+    /// Arm ESC by sending `MotorStop` at ~1kHz for the given duration.
     pub async fn arm_async(&mut self, duration: Duration) {
+        #[allow(clippy::cast_possible_truncation)]
         let iterations = duration.as_millis() as u32;
         for _ in 0..iterations {
             self.send_command_async(Command::MotorStop).await;
@@ -357,27 +306,27 @@ impl<'a, PIO: Instance> BidirDshotPio<'a, PIO> {
         }
     }
 
-    /// Send throttle command asynchronously (no telemetry)
+    /// # Errors
+    ///
+    /// Returns `DshotError::InvalidThrottle` if throttle is out of range.
     pub async fn throttle_async(&mut self, throttle: u16) -> Result<(), DshotError> {
         while self.pio_instance.sm0.rx().try_pull().is_some() {}
         self.sync_pc();
         let frame = Frame::<BidirectionalDshot>::new(throttle.min(1999), false)
             .ok_or(DshotError::InvalidThrottle)?;
-        self.pio_instance.sm0.tx().wait_push(!frame.inner() as u32).await;
+        self.pio_instance.sm0.tx().wait_push(u32::from(!frame.inner())).await;
         Ok(())
     }
 
-    /// Send throttle and read Extended DShot Telemetry (EDT) response
+    /// Send throttle and read an EDT response.
     ///
-    /// Sends the throttle value with telemetry request bit set, then decodes
-    /// the response as self-describing EDT. The telemetry type is determined
-    /// from the frame prefix, not from any prior command.
+    /// EDT must be enabled first (`Command::ExtendedTelemetryEnable`, 6x).
+    /// The ESC interleaves eRPM and EDT frames, so collect multiple samples.
     ///
-    /// EDT must be enabled first by sending `Command::ExtendedTelemetryEnable`
-    /// at least 6 times (use `send_command_repeated_async`).
+    /// # Errors
     ///
-    /// The ESC interleaves normal eRPM frames with EDT frames (temperature,
-    /// voltage, current, etc.), so callers should collect multiple samples.
+    /// Returns `DshotError::InvalidThrottle` if throttle is out of range,
+    /// or a telemetry/GCR/CRC error if the response is invalid.
     pub async fn read_extended_telemetry(
         &mut self,
         throttle: u16,
@@ -385,16 +334,10 @@ impl<'a, PIO: Instance> BidirDshotPio<'a, PIO> {
         let frame = Frame::<BidirectionalDshot>::new(throttle, true)
             .ok_or(DshotError::InvalidThrottle)?;
         let rx_data = self.send_and_receive_raw(frame.inner()).await?;
-
-        // Decode GCR
         let raw_16 = gcr_decode(rx_data).ok_or(DshotError::GcrDecodeError)?;
-
-        // Verify CRC
         if !verify_telemetry_crc(raw_16) {
             return Err(DshotError::InvalidTelemetryCrc);
         }
-
-        // Extract 12-bit data (remove checksum nibble)
         let data_12 = raw_16 >> 4;
         Ok(decode_extended_telemetry(data_12))
     }

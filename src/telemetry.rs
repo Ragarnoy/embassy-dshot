@@ -1,63 +1,30 @@
-/// Extended DShot Telemetry (EDT) data decoded from bidirectional DShot
-///
-/// When EDT is enabled (command 13), the ESC embeds the telemetry **type**
-/// within the 12-bit value itself. The 4-bit prefix (`eee m`) determines
-/// whether a frame is normal eRPM or an EDT type:
-///
-/// - eRPM frame: exponent == 0 OR bit 8 == 1
-/// - EDT frame: exponent != 0 AND bit 8 == 0 (data in lower 8 bits)
+/// Extended `DShot` Telemetry (EDT) decoded from bidirectional `DShot`.
 ///
 /// Reference: [bird-sanctuary/extended-dshot-telemetry](https://github.com/bird-sanctuary/extended-dshot-telemetry)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ExtendedTelemetry {
-    /// Electrical RPM (standard eRPM encoding)
-    Erpm {
-        /// Electrical RPM value
-        erpm: u32,
-        /// Period in microseconds (None if motor stopped)
-        period_us: Option<u32>,
-    },
-    /// ESC temperature (1°C per unit, range 0-255°C)
+    Erpm { erpm: u32, period_us: Option<u32> },
+    /// 1°C per unit
     Temperature(u8),
-    /// ESC voltage in millivolts (250mV per unit, range 0-63.75V)
+    /// 250mV per unit
     Voltage(u32),
-    /// ESC current in milliamps (1A per unit, range 0-255A)
+    /// 1A (1000mA) per unit
     Current(u32),
-    /// Debug value 1 (firmware-specific)
     Debug1(u8),
-    /// Debug value 2 (firmware-specific)
     Debug2(u8),
-    /// ESC stress level (0-255)
     StressLevel(u8),
-    /// ESC status event flags
     Status(u8),
 }
 
-/// Decode a 12-bit EDT telemetry value (self-describing type)
-///
-/// The 12-bit format is `eee m dddddddd`:
-/// - If `exponent == 0` OR `bit8 == 1` → normal eRPM frame
-/// - Otherwise, exponent determines the EDT type, lower 8 bits are data
-///
-/// | Prefix | Type | Scale |
-/// |--------|------|-------|
-/// | `001 0` | Temperature | 1°C per unit |
-/// | `010 0` | Voltage | 0.25V (250mV) per unit |
-/// | `011 0` | Current | 1A (1000mA) per unit |
-/// | `100 0` | Debug 1 | firmware-specific |
-/// | `101 0` | Debug 2 | firmware-specific |
-/// | `110 0` | Stress Level | 0-255 |
-/// | `111 0` | Status | event flags |
-///
-/// Reference: [bird-sanctuary/extended-dshot-telemetry](https://github.com/bird-sanctuary/extended-dshot-telemetry)
+/// Decode a 12-bit EDT value (`eee m dddddddd`).
+/// eRPM if exponent == 0 or bit8 == 1, otherwise EDT type from exponent.
 #[must_use]
 #[allow(clippy::cast_lossless)]
 pub const fn decode_extended_telemetry(raw_12: u16) -> ExtendedTelemetry {
     let exponent = (raw_12 >> 9) & 0x07;
     let bit8 = (raw_12 >> 8) & 1;
 
-    // eRPM frame: exponent == 0 OR bit8 == 1
     if exponent == 0 || bit8 == 1 {
         if raw_12 == 0 || raw_12 == 0x0FFF {
             return ExtendedTelemetry::Erpm {
@@ -79,7 +46,6 @@ pub const fn decode_extended_telemetry(raw_12: u16) -> ExtendedTelemetry {
         };
     }
 
-    // EDT frame: type is in the exponent, data is lower 8 bits
     let data = (raw_12 & 0xFF) as u8;
     match exponent {
         1 => ExtendedTelemetry::Temperature(data),
@@ -88,57 +54,38 @@ pub const fn decode_extended_telemetry(raw_12: u16) -> ExtendedTelemetry {
         4 => ExtendedTelemetry::Debug1(data),
         5 => ExtendedTelemetry::Debug2(data),
         6 => ExtendedTelemetry::StressLevel(data),
-        // 7 is the only remaining case (exponent is 3 bits, 0 handled above)
         _ => ExtendedTelemetry::Status(data),
     }
 }
 
-/// GCR (General Code Recording) decode lookup table
-/// Maps 5-bit GCR values to 4-bit nibbles (0xFF = invalid)
+/// GCR decode table: 5-bit GCR → 4-bit nibble (0xFF = invalid)
 const GCR_DECODE: [u8; 32] = [
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,  // 0x00-0x07: invalid
-    0xFF, 0x09, 0x0A, 0x0B, 0xFF, 0x0D, 0x0E, 0x0F,  // 0x08-0x0F
-    0xFF, 0xFF, 0x02, 0x03, 0xFF, 0x05, 0x06, 0x07,  // 0x10-0x17
-    0xFF, 0x00, 0x08, 0x01, 0xFF, 0x04, 0x0C, 0xFF,  // 0x18-0x1F
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0x09, 0x0A, 0x0B, 0xFF, 0x0D, 0x0E, 0x0F,
+    0xFF, 0xFF, 0x02, 0x03, 0xFF, 0x05, 0x06, 0x07,
+    0xFF, 0x00, 0x08, 0x01, 0xFF, 0x04, 0x0C, 0xFF,
 ];
 
-/// Decode a 20-bit GCR-encoded telemetry value to 16-bit raw telemetry
-///
-/// The ESC sends telemetry as GCR-encoded data (20 data bits after start bit).
-/// This decodes 4 nibbles (5 bits each) into a 16-bit value.
-///
-/// The input is first XOR-decoded: `decoded = gcr ^ (gcr >> 1)`
-/// Then 4 GCR nibbles are extracted and looked up in the decode table.
-///
-/// Based on reference implementation from pico-bidir-dshot.
+/// Decode 20-bit GCR-encoded telemetry to 16-bit raw value.
 ///
 /// Returns `None` if any nibble has an invalid GCR encoding.
-/// CRC validation is NOT done here — use `verify_telemetry_crc()` separately.
+/// CRC validation is separate — use `verify_telemetry_crc()`.
 #[must_use]
-#[allow(clippy::cast_lossless)] // as casts required for const fn
+#[allow(clippy::cast_lossless)]
 pub const fn gcr_decode(gcr_value: u32) -> Option<u16> {
-    // The PIO RX program shifts in up to 21 bits (set x, 20). GCR data is only
-    // 20 bits. When the first pulse measurement uses the shorter timeout (y=6),
-    // an extra bit can be shifted in at bit 20. Mask to 20 bits to prevent it
-    // from corrupting bit 19 during the XOR decode step.
+    // Mask to 20 bits (PIO can shift in 21; bit 20 would corrupt XOR decode)
     let gcr = gcr_value & 0x000F_FFFF;
+    let raw = gcr ^ (gcr >> 1); // XOR decode
 
-    // XOR decode (Manchester decoding): value was encoded as value ^ (value >> 1)
-    let raw = gcr ^ (gcr >> 1);
-
-    // Extract 4 nibbles (5 bits each), LSB first matching reference implementation
-    // nibble0 is bits 0-4, nibble1 is bits 5-9, etc.
     let nibble0 = GCR_DECODE[(raw & 0x1F) as usize];
     let nibble1 = GCR_DECODE[((raw >> 5) & 0x1F) as usize];
     let nibble2 = GCR_DECODE[((raw >> 10) & 0x1F) as usize];
     let nibble3 = GCR_DECODE[((raw >> 15) & 0x1F) as usize];
 
-    // Check for invalid GCR encodings
     if nibble0 == 0xFF || nibble1 == 0xFF || nibble2 == 0xFF || nibble3 == 0xFF {
         return None;
     }
 
-    // Combine nibbles: nibble0 -> bits 0-3, nibble3 -> bits 12-15
     let data = (nibble0 as u16)
         | ((nibble1 as u16) << 4)
         | ((nibble2 as u16) << 8)
@@ -147,9 +94,7 @@ pub const fn gcr_decode(gcr_value: u32) -> Option<u16> {
     Some(data)
 }
 
-/// Verify CRC of decoded telemetry value
-///
-/// XOR of all 4 nibbles must equal 0x0F.
+/// Verify telemetry CRC (XOR of all 4 nibbles must equal 0x0F).
 #[must_use]
 pub const fn verify_telemetry_crc(data: u16) -> bool {
     let checksum = (data ^ (data >> 4) ^ (data >> 8) ^ (data >> 12)) & 0x0F;
@@ -159,8 +104,6 @@ pub const fn verify_telemetry_crc(data: u16) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // ==================== GCR decode tests ====================
 
     // GCR encoding table (4-bit -> 5-bit), inverse of GCR_DECODE
     const GCR_ENCODE: [u8; 16] = [
@@ -351,8 +294,6 @@ mod tests {
         }
     }
 
-    // ==================== Telemetry parsing tests ====================
-
     // Helper matching driver's telemetry_to_erpm
     const fn test_telemetry_to_erpm(value: u16) -> (u32, Option<u32>) {
         if value == 0 || value == 0x0FFF {
@@ -390,8 +331,6 @@ mod tests {
         // exp=3, mantissa=125 -> period=1000us -> erpm=60000
         assert_eq!(test_telemetry_to_erpm((3 << 9) | 125), (60_000, Some(1000)));
     }
-
-    // ==================== Timing constant tests ====================
 
     #[test]
     fn dshot_baud_rates() {
@@ -431,8 +370,6 @@ mod tests {
         let div_bits = ((SYS_CLOCK << 8) / target) as u32;
         assert_eq!(div_bits >> 8, 5, "Bidir divider integer part wrong");
     }
-
-    // ==================== EDT (Extended DShot Telemetry) decode tests ====================
 
     // Helper: build a 12-bit EDT value from prefix and 8-bit data
     // prefix format: eee_m (4 bits), data: lower 8 bits

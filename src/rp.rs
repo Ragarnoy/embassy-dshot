@@ -10,22 +10,11 @@ use embassy_rp::clocks::clk_sys_freq;
 use fixed::types::extra::U8;
 use fixed::FixedU32;
 
-/// Idle throttle value for `Frame::new()` — produces DShot protocol value 48
-/// (the lowest non-command throttle value).
-///
-/// **Note:** This is NOT the same as `Command::MotorStop` (DShot value 0).
-/// Some ESCs will creep slightly at this throttle. To fully stop the motor
-/// and keep it stopped, use `send_command(Command::MotorStop)` instead.
-///
-/// `Frame::new()` maps speed 0-1999 to DShot values 48-2047, so idle
-/// speed is 0, which corresponds to DShot protocol value 48.
+/// Idle throttle value (maps to `DShot` protocol value 48).
 pub const THROTTLE_IDLE: u16 = 0;
 
-/// Convert 12-bit telemetry value to eRPM
-/// Format: eeem mmmm mmmm (3-bit exponent, 9-bit mantissa)
-/// eRPM = mantissa << exponent
-/// Period (us) = 60_000_000 / eRPM (if eRPM > 0)
-#[allow(clippy::cast_lossless)] // as casts required for const fn
+/// Convert 12-bit telemetry value (eeem mmmm mmmm) to eRPM.
+#[allow(clippy::cast_lossless)]
 const fn telemetry_to_erpm(value: u16) -> (u32, Option<u32>) {
     if value == 0 || value == 0x0FFF {
         return (0, None);
@@ -40,7 +29,6 @@ const fn telemetry_to_erpm(value: u16) -> (u32, Option<u32>) {
     (erpm, Some(period_us))
 }
 
-/// DShot speed variants
 #[derive(Clone, Copy, Debug)]
 pub enum DshotSpeed {
     DShot150,
@@ -50,7 +38,7 @@ pub enum DshotSpeed {
 }
 
 impl DshotSpeed {
-    /// Get the baud rate in bits per second
+    #[must_use]
     pub const fn baud_rate(self) -> u32 {
         match self {
             Self::DShot150 => 150_000,
@@ -60,24 +48,22 @@ impl DshotSpeed {
         }
     }
 
-    /// TX PIO clock divider (8 PIO cycles per bit)
+    #[allow(clippy::cast_possible_truncation)]
     fn tx_pio_clock_divider(self) -> FixedU32<U8> {
-        let sys_clock = clk_sys_freq() as u64;
-        FixedU32::<U8>::from_bits(((sys_clock << 8) / (8 * self.baud_rate() as u64)) as u32)
+        let sys_clock = u64::from(clk_sys_freq());
+        FixedU32::<U8>::from_bits(((sys_clock << 8) / (8 * u64::from(self.baud_rate()))) as u32)
     }
 
-    /// Bidir PIO clock divider
-    /// Target PIO clock = 12MHz * speed/300kHz (e.g. DShot600 = 24MHz)
-    /// 32 PIO cycles per bit in the bidir TX phase
+    #[allow(clippy::cast_possible_truncation)]
     fn bidir_pio_clock_divider(self) -> FixedU32<U8> {
-        let sys_clock = clk_sys_freq() as u64;
-        let target = 12_000_000u64 * self.baud_rate() as u64 / 300_000;
+        let sys_clock = u64::from(clk_sys_freq());
+        let target = 12_000_000u64 * u64::from(self.baud_rate()) / 300_000;
         FixedU32::<U8>::from_bits(((sys_clock << 8) / target) as u32)
     }
 }
 
-/// Convert raw command value (0-47) to Command enum safely
-pub fn raw_to_command(cmd: u16) -> Option<Command> {
+#[must_use]
+pub const fn raw_to_command(cmd: u16) -> Option<Command> {
     match cmd {
         0 => Some(Command::MotorStop),
         1 => Some(Command::Beep1),
@@ -116,11 +102,10 @@ pub fn raw_to_command(cmd: u16) -> Option<Command> {
         45 => Some(Command::SignalLineConsumptionTelemetry),
         46 => Some(Command::SignalLineERPMTelemetry),
         47 => Some(Command::SignalLineERPMPeriodTelemetry),
-        _ => None, // 15-19, 36-41 are unassigned
+        _ => None,
     }
 }
 
-/// Build a DShot frame from a raw command value (0-2047)
 fn make_command_frame(cmd: u16) -> Result<Frame<NormalDshot>, DshotError> {
     if cmd < 48 {
         let command = raw_to_command(cmd).ok_or(DshotError::InvalidThrottle)?;
