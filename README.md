@@ -29,7 +29,7 @@ embassy-dshot = { version = "0.1", features = ["rp2350"] }
 ### Single ESC
 
 ```rust,ignore
-use embassy_dshot::dshot_embassy_rp::{DshotPio, DshotSpeed};
+use embassy_dshot::rp::{DshotPio, DshotSpeed};
 use embassy_dshot::{DshotPioAsync, Command};
 
 let mut dshot = DshotPio::<1, _>::new(
@@ -43,7 +43,7 @@ dshot.throttle_async([500]).await.unwrap();
 ### Twin Engine (bidirectional, 2 motors)
 
 ```rust,ignore
-use embassy_dshot::dshot_embassy_rp::{BidirDshotPio, DshotSpeed};
+use embassy_dshot::rp::{BidirDshotPio, DshotSpeed};
 
 let mut engine1 = BidirDshotPio::new(p.PIO0, Irqs0, p.PIN_11, DshotSpeed::DShot300);
 let mut engine2 = BidirDshotPio::new(p.PIO1, Irqs1, p.PIN_12, DshotSpeed::DShot300);
@@ -58,7 +58,7 @@ let rpm2 = t2.rpm(14);
 ### Bidirectional DShot (eRPM telemetry)
 
 ```rust,ignore
-use embassy_dshot::dshot_embassy_rp::{BidirDshotPio, DshotSpeed};
+use embassy_dshot::rp::{BidirDshotPio, DshotSpeed};
 
 let mut dshot = BidirDshotPio::new(
     p.PIO0, Irqs, p.PIN_11, DshotSpeed::DShot600,

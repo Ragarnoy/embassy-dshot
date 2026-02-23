@@ -16,7 +16,7 @@ pub use traits::DshotPioTrait;
 pub use traits::DshotPioAsync;
 
 #[cfg(any(feature = "rp2040", feature = "rp2350"))]
-pub mod dshot_embassy_rp;
+pub mod rp;
 
 #[cfg(any(feature = "rp2040", feature = "rp2350"))]
-pub use dshot_embassy_rp::DshotSpeed;
+pub use rp::DshotSpeed;

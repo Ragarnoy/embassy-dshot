@@ -21,7 +21,7 @@ use embassy_rp::pio::InterruptHandler;
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
-use embassy_dshot::dshot_embassy_rp::{DshotPio, DshotSpeed};
+use embassy_dshot::rp::{DshotPio, DshotSpeed};
 use embassy_dshot::{Command, DshotPioAsync, DshotPioTrait};
 
 bind_interrupts!(struct Irqs {
