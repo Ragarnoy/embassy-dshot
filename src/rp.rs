@@ -1,10 +1,10 @@
-mod unidirectional;
 mod bidirectional;
+mod unidirectional;
 
-pub use unidirectional::DshotPio;
 pub use bidirectional::BidirDshotPio;
+pub use unidirectional::DshotPio;
 
-use crate::{DshotError, Command};
+use crate::{Command, DshotError};
 use dshot_frame::{Frame, NormalDshot};
 use embassy_rp::clocks::clk_sys_freq;
 use fixed::types::extra::U8;
@@ -111,7 +111,6 @@ fn make_command_frame(cmd: u16) -> Result<Frame<NormalDshot>, DshotError> {
         let command = raw_to_command(cmd).ok_or(DshotError::InvalidThrottle)?;
         Ok(Frame::<NormalDshot>::command(command, false))
     } else {
-        Frame::<NormalDshot>::new(cmd.saturating_sub(48), false)
-            .ok_or(DshotError::InvalidThrottle)
+        Frame::<NormalDshot>::new(cmd.saturating_sub(48), false).ok_or(DshotError::InvalidThrottle)
     }
 }

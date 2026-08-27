@@ -1,4 +1,4 @@
-use crate::{DshotError, Command};
+use crate::{Command, DshotError};
 
 pub trait DshotPioTrait<const N: usize> {
     /// Send raw `DShot` command values (0-2047).

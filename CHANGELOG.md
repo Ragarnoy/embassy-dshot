@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-08-27
+
+### Changed
+
+- Upgraded to `embassy-rp` 0.10 and `embassy-time` 0.5.1 — breaking for downstreams still on `embassy-rp` 0.9
+- Raised minimum `defmt` to 1.1 and `fixed` to 1.31
+- Applied `rustfmt` across the source tree
+
+### Added
+
+- `rpm_range` example: EDT throttle sweep that reports the motor's sustainable RPM range
+
 ## [0.2.1] - 2026-02-23
 
 ### Changed

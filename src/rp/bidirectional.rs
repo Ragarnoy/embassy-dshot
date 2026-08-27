@@ -1,15 +1,18 @@
-use crate::{DshotError, Telemetry, Command, ExtendedTelemetry, gcr_decode, verify_telemetry_crc, decode_extended_telemetry};
-use dshot_frame::{Frame, BidirectionalDshot};
-use embassy_rp::Peri;
+use super::{telemetry_to_erpm, DshotSpeed, THROTTLE_IDLE};
+use crate::{
+    decode_extended_telemetry, gcr_decode, verify_telemetry_crc, Command, DshotError,
+    ExtendedTelemetry, Telemetry,
+};
+use dshot_frame::{BidirectionalDshot, Frame};
 use embassy_rp::gpio::Pull;
+use embassy_rp::interrupt::typelevel::Binding;
 use embassy_rp::pio::program::pio_asm;
 use embassy_rp::pio::{
-    Config, Direction, FifoJoin, Instance, InterruptHandler, Pio, Pin, PioPin, ShiftConfig,
+    Config, Direction, FifoJoin, Instance, InterruptHandler, Pin, Pio, PioPin, ShiftConfig,
     ShiftDirection,
 };
-use embassy_rp::interrupt::typelevel::Binding;
+use embassy_rp::Peri;
 use embassy_time::{with_timeout, Duration, Timer};
-use super::{DshotSpeed, THROTTLE_IDLE, telemetry_to_erpm};
 
 /// Bidirectional `DShot` PIO driver for single ESC with telemetry.
 ///
@@ -222,9 +225,12 @@ impl<'a, PIO: Instance> BidirDshotPio<'a, PIO> {
     ///
     /// Returns `DshotError::InvalidThrottle` if throttle is out of range,
     /// or a telemetry error if the ESC does not respond.
-    pub async fn throttle_with_telemetry_raw(&mut self, throttle: u16) -> Result<(u32, Result<Telemetry, DshotError>), DshotError> {
-        let frame = Frame::<BidirectionalDshot>::new(throttle, true)
-            .ok_or(DshotError::InvalidThrottle)?;
+    pub async fn throttle_with_telemetry_raw(
+        &mut self,
+        throttle: u16,
+    ) -> Result<(u32, Result<Telemetry, DshotError>), DshotError> {
+        let frame =
+            Frame::<BidirectionalDshot>::new(throttle, true).ok_or(DshotError::InvalidThrottle)?;
         let rx_data = self.send_and_receive_raw(frame.inner()).await?;
         Ok((rx_data, Self::decode_telemetry(rx_data)))
     }
@@ -235,9 +241,12 @@ impl<'a, PIO: Instance> BidirDshotPio<'a, PIO> {
     ///
     /// Returns `DshotError::InvalidThrottle` if throttle is out of range,
     /// or a telemetry error if the ESC does not respond.
-    pub async fn throttle_with_telemetry(&mut self, throttle: u16) -> Result<Telemetry, DshotError> {
-        let frame = Frame::<BidirectionalDshot>::new(throttle, true)
-            .ok_or(DshotError::InvalidThrottle)?;
+    pub async fn throttle_with_telemetry(
+        &mut self,
+        throttle: u16,
+    ) -> Result<Telemetry, DshotError> {
+        let frame =
+            Frame::<BidirectionalDshot>::new(throttle, true).ok_or(DshotError::InvalidThrottle)?;
         self.send_and_read_telemetry(frame.inner()).await
     }
 
@@ -271,7 +280,11 @@ impl<'a, PIO: Instance> BidirDshotPio<'a, PIO> {
         while self.pio_instance.sm0.rx().try_pull().is_some() {}
         self.sync_pc();
         let frame = Frame::<BidirectionalDshot>::command(cmd, false);
-        self.pio_instance.sm0.tx().wait_push(u32::from(!frame.inner())).await;
+        self.pio_instance
+            .sm0
+            .tx()
+            .wait_push(u32::from(!frame.inner()))
+            .await;
     }
 
     /// # Panics
@@ -293,7 +306,11 @@ impl<'a, PIO: Instance> BidirDshotPio<'a, PIO> {
         self.sync_pc();
         let frame = Frame::<BidirectionalDshot>::new(THROTTLE_IDLE, false)
             .expect("Idle throttle should always be valid");
-        self.pio_instance.sm0.tx().wait_push(u32::from(!frame.inner())).await;
+        self.pio_instance
+            .sm0
+            .tx()
+            .wait_push(u32::from(!frame.inner()))
+            .await;
     }
 
     /// Arm ESC by sending `MotorStop` at ~1kHz for the given duration.
@@ -314,7 +331,11 @@ impl<'a, PIO: Instance> BidirDshotPio<'a, PIO> {
         self.sync_pc();
         let frame = Frame::<BidirectionalDshot>::new(throttle.min(1999), false)
             .ok_or(DshotError::InvalidThrottle)?;
-        self.pio_instance.sm0.tx().wait_push(u32::from(!frame.inner())).await;
+        self.pio_instance
+            .sm0
+            .tx()
+            .wait_push(u32::from(!frame.inner()))
+            .await;
         Ok(())
     }
 
@@ -331,8 +352,8 @@ impl<'a, PIO: Instance> BidirDshotPio<'a, PIO> {
         &mut self,
         throttle: u16,
     ) -> Result<ExtendedTelemetry, DshotError> {
-        let frame = Frame::<BidirectionalDshot>::new(throttle, true)
-            .ok_or(DshotError::InvalidThrottle)?;
+        let frame =
+            Frame::<BidirectionalDshot>::new(throttle, true).ok_or(DshotError::InvalidThrottle)?;
         let rx_data = self.send_and_receive_raw(frame.inner()).await?;
         let raw_16 = gcr_decode(rx_data).ok_or(DshotError::GcrDecodeError)?;
         if !verify_telemetry_crc(raw_16) {

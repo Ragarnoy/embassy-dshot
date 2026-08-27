@@ -18,10 +18,10 @@ Uses PIO to control up to 4 ESCs per PIO block. Supports both unidirectional and
 
 ```toml
 # For RP2040
-embassy-dshot = { version = "0.1", features = ["rp2040"] }
+embassy-dshot = { version = "0.3", features = ["rp2040"] }
 
 # For RP2350
-embassy-dshot = { version = "0.1", features = ["rp2350"] }
+embassy-dshot = { version = "0.3", features = ["rp2350"] }
 ```
 
 ## Example

@@ -41,8 +41,8 @@ async fn main(_spawner: Spawner) {
     let mut dshot = DshotPio::<1, _>::new(
         p.PIO0,
         Irqs,
-        p.PIN_11,
-        DshotSpeed::DShot600,
+        p.PIN_15,
+        DshotSpeed::DShot300,
     );
 
     info!("DShot600 initialized on PIN_11");

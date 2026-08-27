@@ -1,38 +1,38 @@
-use crate::{DshotError, Command, DshotPioTrait, DshotPioAsync};
+use super::{make_command_frame, DshotSpeed, THROTTLE_IDLE};
+use crate::{Command, DshotError, DshotPioAsync, DshotPioTrait};
 use dshot_frame::{Frame, NormalDshot};
-use embassy_rp::Peri;
+use embassy_rp::interrupt::typelevel::Binding;
 use embassy_rp::pio::program::pio_asm;
 use embassy_rp::pio::{
     Config, FifoJoin, Instance, InterruptHandler, Pio, PioPin, ShiftConfig, ShiftDirection,
 };
-use embassy_rp::interrupt::typelevel::Binding;
-use super::{DshotSpeed, THROTTLE_IDLE, make_command_frame};
+use embassy_rp::Peri;
 
 // DShot TX PIO program (8 PIO cycles per bit).
 // Frame in lower 16 bits of TX FIFO word, sent MSB-first.
 macro_rules! dshot_tx_program {
     () => {
         pio_asm!(
-            "set pindirs, 1",           // Configure pin as output
+            "set pindirs, 1", // Configure pin as output
             "entry:",
-            "    pull block",           // Wait for data
-            "    out null, 16",         // Discard upper 16 bits
-            "    set x, 15",            // 16 bits to send
+            "    pull block",   // Wait for data
+            "    out null, 16", // Discard upper 16 bits
+            "    set x, 15",    // 16 bits to send
             "loop:",
-            "    set pins, 1",          // Start bit HIGH
-            "    out y, 1",             // Get next bit
-            "    jmp !y, zero",         // Branch if bit is 0
-            "    nop [2]",              // bit1: extra HIGH time (3+3=6 cycles HIGH)
+            "    set pins, 1",  // Start bit HIGH
+            "    out y, 1",     // Get next bit
+            "    jmp !y, zero", // Branch if bit is 0
+            "    nop [2]",      // bit1: extra HIGH time (3+3=6 cycles HIGH)
             "one:",
-            "    set pins, 0",          // End HIGH
-            "    jmp x--, loop",        // Next bit
+            "    set pins, 0",   // End HIGH
+            "    jmp x--, loop", // Next bit
             "    jmp reset",
             "zero:",
-            "    set pins, 0 [3]",      // bit0: end HIGH early + delay (3 cycles HIGH)
-            "    jmp x--, loop",        // Next bit
+            "    set pins, 0 [3]", // bit0: end HIGH early + delay (3 cycles HIGH)
+            "    jmp x--, loop",   // Next bit
             "    jmp reset",
             "reset:",
-            "    nop [31]",             // Inter-frame gap
+            "    nop [31]", // Inter-frame gap
             "    nop [31]",
             "    nop [31]",
             "    jmp entry [31]",

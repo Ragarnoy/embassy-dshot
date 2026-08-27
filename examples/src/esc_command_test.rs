@@ -88,7 +88,7 @@ async fn main(_spawner: Spawner) {
     let mut dshot = BidirDshotPio::new(
         p.PIO0,
         Irqs,
-        p.PIN_11,
+        p.PIN_15,
         DshotSpeed::DShot600,
     );
 

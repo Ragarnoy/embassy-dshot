@@ -40,7 +40,7 @@ bind_interrupts!(struct Irqs1 {
     PIO1_IRQ_0 => InterruptHandler<PIO1>;
 });
 
-const CRUISE_THROTTLE: u16 = 300;
+const CRUISE_THROTTLE: u16 = 500;
 const MOTOR_POLES: u8 = 14;
 
 #[embassy_executor::main]
@@ -51,7 +51,7 @@ async fn main(_spawner: Spawner) {
 
     // One BidirDshotPio per PIO block — each drives a single ESC
     let mut engine1 = BidirDshotPio::new(p.PIO0, Irqs0, p.PIN_11, DshotSpeed::DShot300);
-    let mut engine2 = BidirDshotPio::new(p.PIO1, Irqs1, p.PIN_12, DshotSpeed::DShot300);
+    let mut engine2 = BidirDshotPio::new(p.PIO1, Irqs1, p.PIN_15, DshotSpeed::DShot300);
 
     info!("Engine 1 on PIN_11 (PIO0), Engine 2 on PIN_12 (PIO1)");
 

@@ -4,7 +4,10 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ExtendedTelemetry {
-    Erpm { erpm: u32, period_us: Option<u32> },
+    Erpm {
+        erpm: u32,
+        period_us: Option<u32>,
+    },
     /// 1°C per unit
     Temperature(u8),
     /// 250mV per unit
@@ -60,10 +63,8 @@ pub const fn decode_extended_telemetry(raw_12: u16) -> ExtendedTelemetry {
 
 /// GCR decode table: 5-bit GCR → 4-bit nibble (0xFF = invalid)
 const GCR_DECODE: [u8; 32] = [
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0x09, 0x0A, 0x0B, 0xFF, 0x0D, 0x0E, 0x0F,
-    0xFF, 0xFF, 0x02, 0x03, 0xFF, 0x05, 0x06, 0x07,
-    0xFF, 0x00, 0x08, 0x01, 0xFF, 0x04, 0x0C, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x09, 0x0A, 0x0B, 0xFF, 0x0D, 0x0E, 0x0F,
+    0xFF, 0xFF, 0x02, 0x03, 0xFF, 0x05, 0x06, 0x07, 0xFF, 0x00, 0x08, 0x01, 0xFF, 0x04, 0x0C, 0xFF,
 ];
 
 /// Decode 20-bit GCR-encoded telemetry to 16-bit raw value.
@@ -107,8 +108,8 @@ mod tests {
 
     // GCR encoding table (4-bit -> 5-bit), inverse of GCR_DECODE
     const GCR_ENCODE: [u8; 16] = [
-        0x19, 0x1B, 0x12, 0x13, 0x1D, 0x15, 0x16, 0x17,
-        0x1A, 0x09, 0x0A, 0x0B, 0x1E, 0x0D, 0x0E, 0x0F,
+        0x19, 0x1B, 0x12, 0x13, 0x1D, 0x15, 0x16, 0x17, 0x1A, 0x09, 0x0A, 0x0B, 0x1E, 0x0D, 0x0E,
+        0x0F,
     ];
 
     /// Encode a 16-bit value with valid checksum to GCR format for testing
@@ -217,7 +218,10 @@ mod tests {
             let prev_gcr_bit = if i == 19 { 0 } else { (gcr >> (i + 1)) & 1 };
             gcr |= (raw_bit ^ prev_gcr_bit) << i;
         }
-        assert!(gcr_decode(gcr).is_none(), "Should reject single invalid nibble");
+        assert!(
+            gcr_decode(gcr).is_none(),
+            "Should reject single invalid nibble"
+        );
 
         // Also test invalid nibble in other positions
         // nibble1 invalid: n0=1, n1=invalid, n2=0, n3=0
@@ -381,51 +385,84 @@ mod tests {
     fn edt_temperature() {
         // Temperature: exponent=1, bit8=0, 1°C per unit
         let raw = edt_frame(1, 0, 25);
-        assert_eq!(decode_extended_telemetry(raw), ExtendedTelemetry::Temperature(25));
+        assert_eq!(
+            decode_extended_telemetry(raw),
+            ExtendedTelemetry::Temperature(25)
+        );
 
         let raw = edt_frame(1, 0, 100);
-        assert_eq!(decode_extended_telemetry(raw), ExtendedTelemetry::Temperature(100));
+        assert_eq!(
+            decode_extended_telemetry(raw),
+            ExtendedTelemetry::Temperature(100)
+        );
 
         let raw = edt_frame(1, 0, 255);
-        assert_eq!(decode_extended_telemetry(raw), ExtendedTelemetry::Temperature(255));
+        assert_eq!(
+            decode_extended_telemetry(raw),
+            ExtendedTelemetry::Temperature(255)
+        );
     }
 
     #[test]
     fn edt_voltage() {
         // Voltage: exponent=2, bit8=0, 250mV per unit
         let raw = edt_frame(2, 0, 48); // 48 * 250 = 12000mV = 12.0V
-        assert_eq!(decode_extended_telemetry(raw), ExtendedTelemetry::Voltage(12000));
+        assert_eq!(
+            decode_extended_telemetry(raw),
+            ExtendedTelemetry::Voltage(12000)
+        );
 
         let raw = edt_frame(2, 0, 67); // 67 * 250 = 16750mV = 16.75V (4S LiPo)
-        assert_eq!(decode_extended_telemetry(raw), ExtendedTelemetry::Voltage(16750));
+        assert_eq!(
+            decode_extended_telemetry(raw),
+            ExtendedTelemetry::Voltage(16750)
+        );
 
         let raw = edt_frame(2, 0, 255); // 255 * 250 = 63750mV = 63.75V
-        assert_eq!(decode_extended_telemetry(raw), ExtendedTelemetry::Voltage(63750));
+        assert_eq!(
+            decode_extended_telemetry(raw),
+            ExtendedTelemetry::Voltage(63750)
+        );
     }
 
     #[test]
     fn edt_current() {
         // Current: exponent=3, bit8=0, 1A (1000mA) per unit
         let raw = edt_frame(3, 0, 10); // 10A = 10000mA
-        assert_eq!(decode_extended_telemetry(raw), ExtendedTelemetry::Current(10000));
+        assert_eq!(
+            decode_extended_telemetry(raw),
+            ExtendedTelemetry::Current(10000)
+        );
 
         let raw = edt_frame(3, 0, 200); // 200A = 200000mA
-        assert_eq!(decode_extended_telemetry(raw), ExtendedTelemetry::Current(200000));
+        assert_eq!(
+            decode_extended_telemetry(raw),
+            ExtendedTelemetry::Current(200000)
+        );
     }
 
     #[test]
     fn edt_debug_stress_status() {
         // Debug 1: exponent=4, bit8=0
         let raw = edt_frame(4, 0, 42);
-        assert_eq!(decode_extended_telemetry(raw), ExtendedTelemetry::Debug1(42));
+        assert_eq!(
+            decode_extended_telemetry(raw),
+            ExtendedTelemetry::Debug1(42)
+        );
 
         // Debug 2: exponent=5, bit8=0
         let raw = edt_frame(5, 0, 99);
-        assert_eq!(decode_extended_telemetry(raw), ExtendedTelemetry::Debug2(99));
+        assert_eq!(
+            decode_extended_telemetry(raw),
+            ExtendedTelemetry::Debug2(99)
+        );
 
         // Stress Level: exponent=6, bit8=0
         let raw = edt_frame(6, 0, 128);
-        assert_eq!(decode_extended_telemetry(raw), ExtendedTelemetry::StressLevel(128));
+        assert_eq!(
+            decode_extended_telemetry(raw),
+            ExtendedTelemetry::StressLevel(128)
+        );
 
         // Status: exponent=7, bit8=0
         let raw = edt_frame(7, 0, 1);
@@ -438,7 +475,10 @@ mod tests {
         // exp=0, mantissa=100 -> period=100us -> erpm=600000
         assert_eq!(
             decode_extended_telemetry(100),
-            ExtendedTelemetry::Erpm { erpm: 600_000, period_us: Some(100) }
+            ExtendedTelemetry::Erpm {
+                erpm: 600_000,
+                period_us: Some(100)
+            }
         );
     }
 
@@ -464,27 +504,51 @@ mod tests {
         // 0 and 0xFFF both indicate motor stopped
         assert_eq!(
             decode_extended_telemetry(0),
-            ExtendedTelemetry::Erpm { erpm: 0, period_us: None }
+            ExtendedTelemetry::Erpm {
+                erpm: 0,
+                period_us: None
+            }
         );
         assert_eq!(
             decode_extended_telemetry(0x0FFF),
-            ExtendedTelemetry::Erpm { erpm: 0, period_us: None }
+            ExtendedTelemetry::Erpm {
+                erpm: 0,
+                period_us: None
+            }
         );
     }
 
     #[test]
     fn edt_boundary_zero_data() {
         // EDT types with data=0
-        assert_eq!(decode_extended_telemetry(edt_frame(1, 0, 0)), ExtendedTelemetry::Temperature(0));
-        assert_eq!(decode_extended_telemetry(edt_frame(2, 0, 0)), ExtendedTelemetry::Voltage(0));
-        assert_eq!(decode_extended_telemetry(edt_frame(3, 0, 0)), ExtendedTelemetry::Current(0));
+        assert_eq!(
+            decode_extended_telemetry(edt_frame(1, 0, 0)),
+            ExtendedTelemetry::Temperature(0)
+        );
+        assert_eq!(
+            decode_extended_telemetry(edt_frame(2, 0, 0)),
+            ExtendedTelemetry::Voltage(0)
+        );
+        assert_eq!(
+            decode_extended_telemetry(edt_frame(3, 0, 0)),
+            ExtendedTelemetry::Current(0)
+        );
     }
 
     #[test]
     fn edt_boundary_max_data() {
         // EDT types with data=255 (max 8-bit)
-        assert_eq!(decode_extended_telemetry(edt_frame(1, 0, 255)), ExtendedTelemetry::Temperature(255));
-        assert_eq!(decode_extended_telemetry(edt_frame(2, 0, 255)), ExtendedTelemetry::Voltage(63750)); // 255*250
-        assert_eq!(decode_extended_telemetry(edt_frame(3, 0, 255)), ExtendedTelemetry::Current(255000)); // 255*1000
+        assert_eq!(
+            decode_extended_telemetry(edt_frame(1, 0, 255)),
+            ExtendedTelemetry::Temperature(255)
+        );
+        assert_eq!(
+            decode_extended_telemetry(edt_frame(2, 0, 255)),
+            ExtendedTelemetry::Voltage(63750)
+        ); // 255*250
+        assert_eq!(
+            decode_extended_telemetry(edt_frame(3, 0, 255)),
+            ExtendedTelemetry::Current(255000)
+        ); // 255*1000
     }
 }
