@@ -6,11 +6,10 @@ use crate::{
 use dshot_frame::{BidirectionalDshot, Frame};
 use embassy_rp::clocks::clk_sys_freq;
 use embassy_rp::gpio::Pull;
-use embassy_rp::interrupt::typelevel::Binding;
 use embassy_rp::pio::program::pio_asm;
 use embassy_rp::pio::{
-    Config, Direction, FifoJoin, Instance, InterruptHandler, Pin, Pio, PioPin, ShiftConfig,
-    ShiftDirection,
+    Common, Config, Direction, FifoJoin, Instance, LoadedProgram, Pin, PioPin, ShiftConfig,
+    ShiftDirection, StateMachine,
 };
 use embassy_rp::Peri;
 use embassy_time::{with_timeout, Duration, Timer};
@@ -28,36 +27,18 @@ const fn bidir_pio_clock_divider(speed: DshotSpeed, sys_clock_hz: u32) -> FixedU
     FixedU32::<U8>::from_bits(((sys_clock << 8) / target) as u32)
 }
 
-/// Bidirectional `DShot` PIO driver for single ESC with telemetry.
+/// Bidirectional DShot program loaded into PIO instruction memory.
 ///
-/// Supports `DShot150`, `DShot300`, `DShot600`. `DShot1200` is not supported
-/// (panics at construction).
-pub struct BidirDshotPio<'a, PIO: Instance> {
-    pio_instance: Pio<'a, PIO>,
-    _pin: Pin<'a, PIO>,
-    origin: u8,
+/// Create once per PIO block and share between up to 4 [`BidirDshotPio`]
+/// instances. Mirrors `embassy-rp` patterns like `PioUartTxProgram`.
+pub struct BidirDshotProgram<'a, PIO: Instance> {
+    prg: LoadedProgram<'a, PIO>,
 }
 
-impl<'a, PIO: Instance> BidirDshotPio<'a, PIO> {
-    /// # Panics
-    ///
-    /// Panics if `speed` is `DshotSpeed::DShot1200`.
-    pub fn new(
-        pio: Peri<'a, PIO>,
-        irq: impl Binding<PIO::Interrupt, InterruptHandler<PIO>>,
-        pin0: Peri<'a, impl PioPin + 'a>,
-        speed: DshotSpeed,
-    ) -> Self {
-        assert!(
-            !matches!(speed, DshotSpeed::DShot1200),
-            "DShot1200 is not supported for bidirectional mode"
-        );
-
-        let mut pio = Pio::new(pio, irq);
-        let mut pin = pio.common.make_pio_pin(pin0);
-
-        pin.set_pull(Pull::Up);
-
+impl<'a, PIO: Instance> BidirDshotProgram<'a, PIO> {
+    /// Load the Bidirectional DShot program into PIO instruction memory,
+    /// call this once per PIO block.
+    pub fn new(common: &mut Common<'a, PIO>) -> Self {
         // Bidirectional DShot PIO program based on pico-bidir-dshot reference.
         //
         // Program layout (offsets from origin):
@@ -131,11 +112,45 @@ impl<'a, PIO: Instance> BidirDshotPio<'a, PIO> {
             "done:"
             ".wrap"
         );
+        Self {
+            prg: common.load_program(&prg.program),
+        }
+    }
+}
+
+/// Bidirectional `DShot` PIO driver for single ESC with telemetry.
+///
+/// Supports `DShot150`, `DShot300`, `DShot600`. `DShot1200` is not supported
+/// (panics at construction).
+pub struct BidirDshotPio<'a, PIO: Instance, const SM: usize> {
+    sm: StateMachine<'a, PIO, SM>,
+    _pin: Pin<'a, PIO>,
+    origin: u8,
+}
+
+impl<'a, PIO: Instance, const SM: usize> BidirDshotPio<'a, PIO, SM> {
+    /// # Panics
+    ///
+    /// Panics if `speed` is `DshotSpeed::DShot1200`.
+    pub fn new(
+        mut sm: StateMachine<'a, PIO, SM>,
+        common: &mut Common<'a, PIO>,
+        pin0: Peri<'a, impl PioPin + 'a>,
+        program: &BidirDshotProgram<'a, PIO>,
+        speed: DshotSpeed,
+    ) -> Self {
+        assert!(
+            !matches!(speed, DshotSpeed::DShot1200),
+            "DShot1200 is not supported for bidirectional mode"
+        );
+
+        let mut pin = common.make_pio_pin(pin0);
+
+        pin.set_pull(Pull::Up);
 
         let mut cfg = Config::default();
-        let loaded = pio.common.load_program(&prg.program);
-        let origin = loaded.origin;
-        cfg.use_program(&loaded, &[]);
+        let origin = program.prg.origin;
+        cfg.use_program(&program.prg, &[]);
 
         let clock_divider = bidir_pio_clock_divider(speed, clk_sys_freq());
         cfg.clock_divider = clock_divider;
@@ -158,14 +173,14 @@ impl<'a, PIO: Instance> BidirDshotPio<'a, PIO> {
         cfg.set_out_pins(&[&pin]);
         cfg.set_in_pins(&[&pin]);
 
-        pio.sm0.set_config(&cfg);
-        pio.sm0.set_pin_dirs(Direction::Out, &[&pin]);
-        pio.sm0.restart();
-        pio.sm0.set_enable(true);
-        pio.sm0.set_clock_divider(clock_divider);
+        sm.set_config(&cfg);
+        sm.set_pin_dirs(Direction::Out, &[&pin]);
+        sm.restart();
+        sm.set_enable(true);
+        sm.set_clock_divider(clock_divider);
 
         Self {
-            pio_instance: pio,
+            sm,
             _pin: pin,
             origin,
         }
@@ -174,43 +189,37 @@ impl<'a, PIO: Instance> BidirDshotPio<'a, PIO> {
     /// Reset PIO to the pull-block position if it drifted (e.g. telemetry timeout).
     fn sync_pc(&mut self) {
         let expected_pc = self.origin + 2;
-        let current_pc = self.pio_instance.sm0.get_addr();
+        let current_pc = self.sm.get_addr();
 
         if current_pc != expected_pc {
             // Clear ISR to discard any partial RX data from an interrupted frame.
             // MOV ISR, NULL = 0b101_00000_110_00_011 = 0xA0C3
-            unsafe { self.pio_instance.sm0.exec_instr(0xA0C3) };
+            unsafe { self.sm.exec_instr(0xA0C3) };
 
             // Construct unconditional JMP instruction: opcode 000, no delay, condition 000
             let jmp_instr = u16::from(self.origin + 1) & 0x1F;
-            unsafe { self.pio_instance.sm0.exec_instr(jmp_instr) };
+            unsafe { self.sm.exec_instr(jmp_instr) };
         }
     }
 
     /// Send a frame, read raw RX value, and decode telemetry
     async fn send_and_receive_raw(&mut self, frame_raw: u16) -> Result<u32, DshotError> {
         // Clear stale RX data
-        while self.pio_instance.sm0.rx().try_pull().is_some() {}
+        while self.sm.rx().try_pull().is_some() {}
         self.sync_pc();
 
         let tx_data = u32::from(!frame_raw); // bidir DShot sends inverted
 
-        if with_timeout(
-            Duration::from_millis(10),
-            self.pio_instance.sm0.tx().wait_push(tx_data),
-        )
-        .await
-        .is_err()
+        if with_timeout(Duration::from_millis(10), self.sm.tx().wait_push(tx_data))
+            .await
+            .is_err()
         {
             return Err(DshotError::TelemetryTimeout);
         }
 
-        let rx_data = with_timeout(
-            Duration::from_micros(500),
-            self.pio_instance.sm0.rx().wait_pull(),
-        )
-        .await
-        .map_err(|_| DshotError::TelemetryTimeout)?;
+        let rx_data = with_timeout(Duration::from_micros(500), self.sm.rx().wait_pull())
+            .await
+            .map_err(|_| DshotError::TelemetryTimeout)?;
 
         if rx_data == 0 {
             return Err(DshotError::TelemetryTimeout);
@@ -279,10 +288,10 @@ impl<'a, PIO: Instance> BidirDshotPio<'a, PIO> {
     }
 
     pub fn send_command(&mut self, cmd: Command) {
-        while self.pio_instance.sm0.rx().try_pull().is_some() {}
+        while self.sm.rx().try_pull().is_some() {}
         self.sync_pc();
         let frame = Frame::<BidirectionalDshot>::command(cmd, false);
-        self.pio_instance.sm0.tx().push(u32::from(!frame.inner()));
+        self.sm.tx().push(u32::from(!frame.inner()));
     }
 
     /// Send a `DShot` command repeatedly (6x for settings, 10x for beep).
@@ -295,40 +304,32 @@ impl<'a, PIO: Instance> BidirDshotPio<'a, PIO> {
     }
 
     pub async fn send_command_async(&mut self, cmd: Command) {
-        while self.pio_instance.sm0.rx().try_pull().is_some() {}
+        while self.sm.rx().try_pull().is_some() {}
         self.sync_pc();
         let frame = Frame::<BidirectionalDshot>::command(cmd, false);
-        self.pio_instance
-            .sm0
-            .tx()
-            .wait_push(u32::from(!frame.inner()))
-            .await;
+        self.sm.tx().wait_push(u32::from(!frame.inner())).await;
     }
 
     /// # Panics
     ///
     /// Panics if the idle throttle frame cannot be constructed (should never happen).
     pub fn throttle_idle(&mut self) {
-        while self.pio_instance.sm0.rx().try_pull().is_some() {}
+        while self.sm.rx().try_pull().is_some() {}
         self.sync_pc();
         let frame = Frame::<BidirectionalDshot>::new(THROTTLE_IDLE, false)
             .expect("Idle throttle should always be valid");
-        self.pio_instance.sm0.tx().push(u32::from(!frame.inner()));
+        self.sm.tx().push(u32::from(!frame.inner()));
     }
 
     /// # Panics
     ///
     /// Panics if the idle throttle frame cannot be constructed (should never happen).
     pub async fn throttle_idle_async(&mut self) {
-        while self.pio_instance.sm0.rx().try_pull().is_some() {}
+        while self.sm.rx().try_pull().is_some() {}
         self.sync_pc();
         let frame = Frame::<BidirectionalDshot>::new(THROTTLE_IDLE, false)
             .expect("Idle throttle should always be valid");
-        self.pio_instance
-            .sm0
-            .tx()
-            .wait_push(u32::from(!frame.inner()))
-            .await;
+        self.sm.tx().wait_push(u32::from(!frame.inner())).await;
     }
 
     /// Arm ESC by sending `MotorStop` at ~1kHz for the given duration.
@@ -345,15 +346,11 @@ impl<'a, PIO: Instance> BidirDshotPio<'a, PIO> {
     ///
     /// Returns `DshotError::InvalidThrottle` if throttle is out of range.
     pub async fn throttle_async(&mut self, throttle: u16) -> Result<(), DshotError> {
-        while self.pio_instance.sm0.rx().try_pull().is_some() {}
+        while self.sm.rx().try_pull().is_some() {}
         self.sync_pc();
         let frame = Frame::<BidirectionalDshot>::new(throttle.min(1999), false)
             .ok_or(DshotError::InvalidThrottle)?;
-        self.pio_instance
-            .sm0
-            .tx()
-            .wait_push(u32::from(!frame.inner()))
-            .await;
+        self.sm.tx().wait_push(u32::from(!frame.inner())).await;
         Ok(())
     }
 

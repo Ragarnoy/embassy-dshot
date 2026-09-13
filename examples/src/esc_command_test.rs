@@ -26,11 +26,11 @@ use defmt::info;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::PIO0;
-use embassy_rp::pio::InterruptHandler;
+use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
-use embassy_dshot::rp::{BidirDshotPio, DshotSpeed};
+use embassy_dshot::rp::{BidirDshotPio, BidirDshotProgram, DshotSpeed};
 use embassy_dshot::Command;
 
 bind_interrupts!(struct Irqs {
@@ -43,14 +43,14 @@ const TEST_THROTTLE: u16 = 200;
 const SETTINGS_REPEAT: u8 = 6;
 
 /// Arm ESC by sending MotorStop for the given duration in milliseconds
-async fn arm_esc(dshot: &mut BidirDshotPio<'_, impl embassy_rp::pio::Instance>, ms: u32) {
+async fn arm_esc(dshot: &mut BidirDshotPio<'_, impl embassy_rp::pio::Instance, 0>, ms: u32) {
     info!("Arming ESC ({}ms)...", ms);
     dshot.arm_async(Duration::from_millis(ms as u64)).await;
     info!("ESC armed");
 }
 
 /// Brief motor spin at low throttle for direction/mode verification
-async fn brief_spin(dshot: &mut BidirDshotPio<'_, impl embassy_rp::pio::Instance>, throttle: u16, duration_ms: u32) {
+async fn brief_spin(dshot: &mut BidirDshotPio<'_, impl embassy_rp::pio::Instance, 0>, throttle: u16, duration_ms: u32) {
     info!("Spinning motor at throttle {} for {}ms...", throttle, duration_ms);
     // Ramp up
     for t in (0..=throttle).step_by(10) {
@@ -85,12 +85,13 @@ async fn main(_spawner: Spawner) {
     info!("=== ESC Command Validation Test ===");
     info!("SAFETY: Ensure propeller is removed!");
 
-    let mut dshot = BidirDshotPio::new(
-        p.PIO0,
-        Irqs,
-        p.PIN_15,
-        DshotSpeed::DShot600,
-    );
+    let Pio {
+        common: mut common,
+        sm0,
+        ..
+    } = Pio::new(p.PIO0, Irqs);
+    let prog = BidirDshotProgram::new(&mut common);
+    let mut dshot = BidirDshotPio::new(sm0, &mut common, p.PIN_15, &prog, DshotSpeed::DShot600);
 
     // =========================================================================
     // Initial arm

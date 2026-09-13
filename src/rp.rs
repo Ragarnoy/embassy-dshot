@@ -1,7 +1,7 @@
 mod bidirectional;
 mod unidirectional;
 
-pub use bidirectional::BidirDshotPio;
+pub use bidirectional::{BidirDshotPio, BidirDshotProgram};
 pub use unidirectional::DshotPio;
 
 use crate::{Command, DshotError};
