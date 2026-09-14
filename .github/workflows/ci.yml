@@ -6,6 +6,13 @@ on:
   pull_request:
   workflow_dispatch:
 
+# No job here needs write access; checkout only needs `contents: read`.
+# Set explicitly so the workflow does not inherit repository defaults, which
+# can be changed in the UI without touching this file. Unlisted permissions
+# become `none`.
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
