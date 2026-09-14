@@ -32,7 +32,7 @@ pub trait DshotPioTrait<const N: usize> {
     fn send_command_repeated(&mut self, cmd: Command, count: u8);
 }
 
-#[cfg(any(feature = "rp2040", feature = "rp2350"))]
+#[cfg(feature = "_rp")]
 #[allow(async_fn_in_trait)]
 pub trait DshotPioAsync<const N: usize> {
     async fn command_async(&mut self, command: [u16; N]) -> Result<(), DshotError>;

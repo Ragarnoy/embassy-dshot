@@ -1,12 +1,26 @@
 use super::{make_command_frame, DshotSpeed, THROTTLE_IDLE};
 use crate::{Command, DshotError, DshotPioAsync, DshotPioTrait};
 use dshot_frame::{Frame, NormalDshot};
+use embassy_rp::clocks::clk_sys_freq;
 use embassy_rp::interrupt::typelevel::Binding;
 use embassy_rp::pio::program::pio_asm;
 use embassy_rp::pio::{
     Config, FifoJoin, Instance, InterruptHandler, Pio, PioPin, ShiftConfig, ShiftDirection,
 };
 use embassy_rp::Peri;
+use fixed::types::extra::U8;
+use fixed::FixedU32;
+
+/// PIO clock divider for unidirectional `DShot` TX.
+///
+/// The TX program below spends 8 PIO cycles per `DShot` bit, so the state
+/// machine must run at `8 * baud_rate`.
+#[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
+const fn tx_pio_clock_divider(speed: DshotSpeed, sys_clock_hz: u32) -> FixedU32<U8> {
+    let sys_clock = sys_clock_hz as u64;
+    let target = 8 * speed.baud_rate() as u64;
+    FixedU32::<U8>::from_bits(((sys_clock << 8) / target) as u32)
+}
 
 // DShot TX PIO program (8 PIO cycles per bit).
 // Frame in lower 16 bits of TX FIFO word, sent MSB-first.
@@ -58,7 +72,7 @@ macro_rules! impl_dshot_pio_new {
                 let mut cfg = Config::default();
                 let mut pio = Pio::new(pio, irq);
 
-                cfg.clock_divider = speed.tx_pio_clock_divider();
+                cfg.clock_divider = tx_pio_clock_divider(speed, clk_sys_freq());
                 cfg.shift_out = ShiftConfig {
                     auto_fill: false,
                     direction: ShiftDirection::Left,
@@ -199,3 +213,35 @@ impl_dshot_traits!(1, 0 => sm0);
 impl_dshot_traits!(2, 0 => sm0, 1 => sm1);
 impl_dshot_traits!(3, 0 => sm0, 1 => sm1, 2 => sm2);
 impl_dshot_traits!(4, 0 => sm0, 1 => sm1, 2 => sm2, 3 => sm3);
+
+#[cfg(test)]
+mod tests {
+    use super::tx_pio_clock_divider;
+    use crate::DshotSpeed;
+
+    /// 8 PIO cycles/bit: DShot600 needs a 4.8MHz PIO clock, so at 125MHz the
+    /// divider is 125/4.8 = 26.0417 -> 6666 in 24.8 fixed point.
+    #[test]
+    fn tx_divider_at_125mhz() {
+        let div = tx_pio_clock_divider(DshotSpeed::DShot600, 125_000_000);
+        assert_eq!(div.to_bits(), 6666, "raw 24.8 divider wrong");
+        assert_eq!(div.to_bits() >> 8, 26, "integer part wrong");
+    }
+
+    #[test]
+    fn tx_divider_scales_inversely_with_baud() {
+        // Halving the bit rate doubles the divider. Uses a clock that divides
+        // evenly at both speeds, so fixed-point truncation can't skew the ratio.
+        let fast = tx_pio_clock_divider(DshotSpeed::DShot600, 120_000_000).to_bits();
+        let slow = tx_pio_clock_divider(DshotSpeed::DShot300, 120_000_000).to_bits();
+        assert_eq!(slow, fast * 2);
+    }
+
+    #[test]
+    fn tx_divider_encodes_eight_cycles_per_bit() {
+        // Pick a clock that divides exactly so the check is independent of rounding.
+        let div = tx_pio_clock_divider(DshotSpeed::DShot150, 120_000_000);
+        let pio_clock = 120_000_000u64 * 256 / u64::from(div.to_bits());
+        assert_eq!(pio_clock, 8 * 150_000);
+    }
+}

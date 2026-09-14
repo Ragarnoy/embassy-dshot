@@ -6,9 +6,10 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [features]
-default = ["rp2350"]
+default = ["rp235xa"]
 rp2040 = ["embassy-dshot/rp2040", "embassy-rp/rp2040"]
-rp2350 = ["embassy-dshot/rp2350", "embassy-rp/rp235xa"]
+rp235xa = ["embassy-dshot/rp235xa", "embassy-rp/rp235xa"]
+rp235xb = ["embassy-dshot/rp235xb", "embassy-rp/rp235xb"]
 
 [dependencies]
 embassy-dshot = { path = "..", features = ["defmt"] }

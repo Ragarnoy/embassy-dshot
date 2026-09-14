@@ -1,13 +1,13 @@
 [package]
 name = "embassy-dshot"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 resolver = "2"
 authors = ["Ragarnoy <tiagolernould@gmail.com>"]
 license = "MIT OR Apache-2.0"
 description = "Async DShot ESC protocol driver for embassy-rp (RP2040/RP2350)"
 repository = "https://github.com/Ragarnoy/embassy-dshot"
-keywords = ["embassy", "dshot", "esc", "rp2040", "rp2350"]
+keywords = ["embassy", "dshot", "esc", "rp2040", "rp235x"]
 categories = ["embedded", "no-std"]
 
 [package.metadata.docs.rs]
@@ -18,8 +18,16 @@ targets = ["thumbv6m-none-eabi"]
 default = []
 std = []
 defmt = ["dep:defmt"]
-rp2040 = ["dep:embassy-rp", "dep:embassy-time", "embassy-rp/rp2040"]
-rp2350 = ["dep:embassy-rp", "dep:embassy-time", "embassy-rp/rp235xa"]
+
+rp2040 = ["_rp", "embassy-rp/rp2040"]
+rp235xa = ["_rp", "embassy-rp/rp235xa"]
+rp235xb = ["_rp", "embassy-rp/rp235xb"]
+
+# Deprecated alias for `rp235xa`; kept through 0.4.x, removed in 0.5.0.
+rp2350 = ["rp235xa"]
+
+# Internal: enabled by the chip features above. Not for direct use.
+_rp = ["dep:embassy-rp", "dep:embassy-time"]
 
 [dependencies]
 dshot-frame = "0.2.1"
