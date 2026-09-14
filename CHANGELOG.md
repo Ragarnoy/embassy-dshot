@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-09-14
+
+### Added
+
+- `rp235xa` and `rp235xb` features — RP235xB boards are now supported at all, where
+  previously the `rp2350` feature hardcoded `embassy-rp/rp235xa`
+- CI: host test powerset, a per-chip check matrix covering every supported target,
+  clippy/rustfmt gates, and example builds (`cargo hack`)
+
+### Changed
+
+- `DshotSpeed` moved to its own chip-independent module; still re-exported from `rp`,
+  so `embassy_dshot::rp::DshotSpeed` and `embassy_dshot::DshotSpeed` both work
+- PIO clock dividers are now free functions taking the system clock as an argument
+  instead of methods reading it internally — private API, no downstream impact
+
+### Deprecated
+
+- `rp2350`, now an alias for `rp235xa`; it will be removed in 0.5.0
+
+### Fixed
+
+- Bidirectional PIO TX phase is documented as 40 cycles per bit, not 32 — the program
+  has always been 40, matching the clock divider
+- Three tests restated constants instead of calling the code they claimed to cover:
+  both clock-divider tests recomputed the arithmetic inline, and `dshot_baud_rates`
+  never called `DshotSpeed::baud_rate()`. All now exercise the real functions.
+
 ## [0.3.0] - 2026-08-27
 
 ### Changed

@@ -6,9 +6,8 @@ pub use unidirectional::DshotPio;
 
 use crate::{Command, DshotError};
 use dshot_frame::{Frame, NormalDshot};
-use embassy_rp::clocks::clk_sys_freq;
-use fixed::types::extra::U8;
-use fixed::FixedU32;
+
+pub use crate::dshot_speed::DshotSpeed;
 
 /// Idle throttle value (maps to `DShot` protocol value 48).
 pub const THROTTLE_IDLE: u16 = 0;
@@ -27,39 +26,6 @@ const fn telemetry_to_erpm(value: u16) -> (u32, Option<u32>) {
     }
     let erpm = 60_000_000 / period_us;
     (erpm, Some(period_us))
-}
-
-#[derive(Clone, Copy, Debug)]
-pub enum DshotSpeed {
-    DShot150,
-    DShot300,
-    DShot600,
-    DShot1200,
-}
-
-impl DshotSpeed {
-    #[must_use]
-    pub const fn baud_rate(self) -> u32 {
-        match self {
-            Self::DShot150 => 150_000,
-            Self::DShot300 => 300_000,
-            Self::DShot600 => 600_000,
-            Self::DShot1200 => 1_200_000,
-        }
-    }
-
-    #[allow(clippy::cast_possible_truncation)]
-    fn tx_pio_clock_divider(self) -> FixedU32<U8> {
-        let sys_clock = u64::from(clk_sys_freq());
-        FixedU32::<U8>::from_bits(((sys_clock << 8) / (8 * u64::from(self.baud_rate()))) as u32)
-    }
-
-    #[allow(clippy::cast_possible_truncation)]
-    fn bidir_pio_clock_divider(self) -> FixedU32<U8> {
-        let sys_clock = u64::from(clk_sys_freq());
-        let target = 12_000_000u64 * u64::from(self.baud_rate()) / 300_000;
-        FixedU32::<U8>::from_bits(((sys_clock << 8) / target) as u32)
-    }
 }
 
 #[must_use]

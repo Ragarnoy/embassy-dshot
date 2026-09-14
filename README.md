@@ -1,13 +1,13 @@
 # embassy-dshot
 
-DShot ESC protocol driver for embassy-rp (RP2040/RP2350).
+DShot ESC protocol driver for embassy-rp (RP2040/RP235xA/RP235xB).
 
 Uses PIO to control up to 4 ESCs per PIO block. Supports both unidirectional and bidirectional DShot with GCR-encoded eRPM telemetry.
 
 ## Features
 
 - Async/await with Embassy
-- RP2040 and RP2350 support
+- RP2040, RP235xA and RP235xB support
 - 1-4 motors per PIO block (unidirectional)
 - Bidirectional DShot with eRPM telemetry (single ESC)
 - Automatic clock divider calculation from system clock
@@ -18,11 +18,15 @@ Uses PIO to control up to 4 ESCs per PIO block. Supports both unidirectional and
 
 ```toml
 # For RP2040
-embassy-dshot = { version = "0.3", features = ["rp2040"] }
+embassy-dshot = { version = "0.4", features = ["rp2040"] }
 
-# For RP2350
-embassy-dshot = { version = "0.3", features = ["rp2350"] }
+# For RP2350 — pick the variant matching your chip package
+embassy-dshot = { version = "0.4", features = ["rp235xa"] }
+embassy-dshot = { version = "0.4", features = ["rp235xb"] }
 ```
+
+The `rp2350` feature still works as an alias for `rp235xa`, but is deprecated and
+will be removed in 0.5.
 
 ## Example
 
@@ -131,15 +135,19 @@ for custom telemetry pipelines.
 See the [`examples/`](examples/) directory. Build with:
 
 ```sh
-# RP2350 (default)
+# RP235xA (default)
 cargo build --manifest-path examples/Cargo.toml --release --bin single_esc
+
+# RP235xB
+cargo build --manifest-path examples/Cargo.toml --no-default-features --features rp235xb \
+    --target thumbv8m.main-none-eabihf --release --bin single_esc
 
 # RP2040
 cargo build --manifest-path examples/Cargo.toml --no-default-features --features rp2040 \
     --target thumbv6m-none-eabi --release --bin single_esc
 ```
 
-Available examples: `bringup`, `single_esc`, `bdshot_test`, `esc_command_test`, `twin_engine`
+Available examples: `bringup`, `single_esc`, `bdshot_test`, `esc_command_test`, `twin_engine`, `rpm_range`
 
 ## Credits
 

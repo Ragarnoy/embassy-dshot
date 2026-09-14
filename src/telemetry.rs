@@ -336,45 +336,6 @@ mod tests {
         assert_eq!(test_telemetry_to_erpm((3 << 9) | 125), (60_000, Some(1000)));
     }
 
-    #[test]
-    fn dshot_baud_rates() {
-        // Verify baud rates match DShot spec
-        const EXPECTED: [(u32, &str); 4] = [
-            (150_000, "DShot150"),
-            (300_000, "DShot300"),
-            (600_000, "DShot600"),
-            (1_200_000, "DShot1200"),
-        ];
-        // These are the baud rates from the spec, verified by the const fn
-        for (baud, name) in EXPECTED {
-            assert!(baud > 0, "Baud rate for {name} should be positive");
-        }
-    }
-
-    #[test]
-    fn dshot_tx_divider_at_125mhz() {
-        // Verify TX divider calculation: 8 PIO cycles/bit
-        // At 125MHz, DShot600 = 600kHz baud, PIO clock = 600kHz * 8 = 4.8MHz
-        // Divider = 125MHz / 4.8MHz = 26.04166...
-        // Fixed-point (8 frac bits): 26.04166 * 256 = 6666.666... ≈ 6667
-        const SYS_CLOCK: u64 = 125_000_000;
-        let baud = 600_000u64;
-        let div_bits = ((SYS_CLOCK << 8) / (8 * baud)) as u32;
-        // Integer part should be ~26
-        assert_eq!(div_bits >> 8, 26, "TX divider integer part wrong");
-    }
-
-    #[test]
-    fn dshot_bidir_divider_at_125mhz() {
-        // Verify bidir divider: target PIO clock = 12MHz * speed/300kHz
-        // DShot600: target = 12MHz * 600/300 = 24MHz
-        // At 125MHz: divider = 125/24 = 5.2083...
-        const SYS_CLOCK: u64 = 125_000_000;
-        let target = 12_000_000u64 * 600_000 / 300_000; // 24MHz
-        let div_bits = ((SYS_CLOCK << 8) / target) as u32;
-        assert_eq!(div_bits >> 8, 5, "Bidir divider integer part wrong");
-    }
-
     // Helper: build a 12-bit EDT value from prefix and 8-bit data
     // prefix format: eee_m (4 bits), data: lower 8 bits
     const fn edt_frame(exponent: u16, bit8: u16, data: u16) -> u16 {

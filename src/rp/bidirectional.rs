@@ -4,6 +4,7 @@ use crate::{
     ExtendedTelemetry, Telemetry,
 };
 use dshot_frame::{BidirectionalDshot, Frame};
+use embassy_rp::clocks::clk_sys_freq;
 use embassy_rp::gpio::Pull;
 use embassy_rp::interrupt::typelevel::Binding;
 use embassy_rp::pio::program::pio_asm;
@@ -13,6 +14,19 @@ use embassy_rp::pio::{
 };
 use embassy_rp::Peri;
 use embassy_time::{with_timeout, Duration, Timer};
+use fixed::types::extra::U8;
+use fixed::FixedU32;
+
+/// PIO clock divider for bidirectional `DShot`.
+///
+/// The TX phase of the PIO program below spends 40 PIO cycles per `DShot` bit,
+/// so the state machine must run at `40 * baud_rate`.
+#[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
+const fn bidir_pio_clock_divider(speed: DshotSpeed, sys_clock_hz: u32) -> FixedU32<U8> {
+    let sys_clock = sys_clock_hz as u64;
+    let target = 40 * speed.baud_rate() as u64;
+    FixedU32::<U8>::from_bits(((sys_clock << 8) / target) as u32)
+}
 
 /// Bidirectional `DShot` PIO driver for single ESC with telemetry.
 ///
@@ -51,8 +65,11 @@ impl<'a, PIO: Instance> BidirDshotPio<'a, PIO> {
         //   origin + 1: set pindirs, 1 (pin as output)
         //   origin + 2: pull block     (waits for TX frame — idle position)
         //
-        // TX Phase (32 cycles per bit):
-        //   14 cycles LOW, 14 cycles data bit (inverted), 11 cycles HIGH, 1 jmp
+        // TX Phase (40 cycles per bit):
+        //   14 cycles driven LOW, 14 cycles driving the (inverted) data bit,
+        //   11 cycles driven HIGH, 1 cycle for the loop jmp.
+        //   The middle phase follows the data, so total HIGH time per bit varies.
+        //   40 cycles/bit is what bidir_pio_clock_divider encodes.
         //
         // RX Phase (pulse-width measurement):
         //   Wait for falling edge, measure pulse widths using counting loops.
@@ -120,7 +137,8 @@ impl<'a, PIO: Instance> BidirDshotPio<'a, PIO> {
         let origin = loaded.origin;
         cfg.use_program(&loaded, &[]);
 
-        cfg.clock_divider = speed.bidir_pio_clock_divider();
+        let clock_divider = bidir_pio_clock_divider(speed, clk_sys_freq());
+        cfg.clock_divider = clock_divider;
 
         cfg.shift_out = ShiftConfig {
             auto_fill: false,
@@ -144,7 +162,7 @@ impl<'a, PIO: Instance> BidirDshotPio<'a, PIO> {
         pio.sm0.set_pin_dirs(Direction::Out, &[&pin]);
         pio.sm0.restart();
         pio.sm0.set_enable(true);
-        pio.sm0.set_clock_divider(speed.bidir_pio_clock_divider());
+        pio.sm0.set_clock_divider(clock_divider);
 
         Self {
             pio_instance: pio,
@@ -361,5 +379,28 @@ impl<'a, PIO: Instance> BidirDshotPio<'a, PIO> {
         }
         let data_12 = raw_16 >> 4;
         Ok(decode_extended_telemetry(data_12))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::bidir_pio_clock_divider;
+    use crate::DshotSpeed;
+
+    /// 40 PIO cycles/bit: DShot600 needs a 24MHz PIO clock, so at 125MHz the
+    /// divider is 125/24 = 5.2083 -> 1333 in 24.8 fixed point.
+    #[test]
+    fn bidir_divider_at_125mhz() {
+        let div = bidir_pio_clock_divider(DshotSpeed::DShot600, 125_000_000);
+        assert_eq!(div.to_bits(), 1333, "raw 24.8 divider wrong");
+        assert_eq!(div.to_bits() >> 8, 5, "integer part wrong");
+    }
+
+    #[test]
+    fn bidir_divider_encodes_forty_cycles_per_bit() {
+        // Pick a clock that divides exactly so the check is independent of rounding.
+        let div = bidir_pio_clock_divider(DshotSpeed::DShot300, 120_000_000);
+        let pio_clock = 120_000_000u64 * 256 / u64::from(div.to_bits());
+        assert_eq!(pio_clock, 40 * 300_000);
     }
 }
