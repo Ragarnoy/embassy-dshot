@@ -70,7 +70,7 @@ async fn main(_spawner: Spawner) {
     info!("Motor poles: {}, Max throttle: {}", MOTOR_POLES, MAX_THROTTLE);
 
     let Pio {
-        common: mut common,
+        mut common,
         sm0,
         ..
     } = Pio::new(p.PIO0, Irqs);

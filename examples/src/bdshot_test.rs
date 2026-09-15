@@ -57,7 +57,7 @@ async fn main(_spawner: Spawner) {
     info!("SAFETY: Ensure propeller is removed!");
 
     let Pio {
-        common: mut common,
+        mut common,
         sm0,
         ..
     } = Pio::new(p.PIO0, Irqs);

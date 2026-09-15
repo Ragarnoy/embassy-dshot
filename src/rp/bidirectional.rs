@@ -27,7 +27,7 @@ const fn bidir_pio_clock_divider(speed: DshotSpeed, sys_clock_hz: u32) -> FixedU
     FixedU32::<U8>::from_bits(((sys_clock << 8) / target) as u32)
 }
 
-/// Bidirectional DShot program loaded into PIO instruction memory.
+/// Bidirectional `DShot` program loaded into PIO instruction memory.
 ///
 /// Create once per PIO block and share between up to 4 [`BidirDshotPio`]
 /// instances. Mirrors `embassy-rp` patterns like `PioUartTxProgram`.
@@ -36,7 +36,7 @@ pub struct BidirDshotProgram<'a, PIO: Instance> {
 }
 
 impl<'a, PIO: Instance> BidirDshotProgram<'a, PIO> {
-    /// Load the Bidirectional DShot program into PIO instruction memory,
+    /// Load the Bidirectional `DShot` program into PIO instruction memory,
     /// call this once per PIO block.
     pub fn new(common: &mut Common<'a, PIO>) -> Self {
         // Bidirectional DShot PIO program based on pico-bidir-dshot reference.
