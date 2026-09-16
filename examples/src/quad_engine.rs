@@ -19,6 +19,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_futures::join::join4;
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::PIO0;
 use embassy_rp::pio::{InterruptHandler, Pio};
@@ -74,8 +75,11 @@ async fn main(_spawner: Spawner) {
 
     // -------------------------------------------------------------------------
     // Beep test — confirms communication works
+    //
+    // Only M1 beeps, on purpose: it identifies which physical motor is wired to
+    // sm0. The other three are held at MotorStop so they keep their arm state.
     // -------------------------------------------------------------------------
-    info!("Beep test...");
+    info!("Beep test (M1 only)...");
     for _ in 0..10 {
         m1.send_command_async(Command::Beep1).await;
         m2.send_command_async(Command::MotorStop).await;
@@ -101,10 +105,17 @@ async fn main(_spawner: Spawner) {
             info!("  Throttle: {}", throttle);
         }
         for _ in 0..40 {
-            let _ = m1.throttle_with_telemetry(throttle).await;
-            let _ = m2.throttle_with_telemetry(throttle).await;
-            let _ = m3.throttle_with_telemetry(throttle).await;
-            let _ = m4.throttle_with_telemetry(throttle).await;
+            // Concurrent, not sequential: each call can sit on the 500us RX
+            // timeout, so awaiting them in turn would cost up to 2ms per
+            // iteration. The four state machines are independent, so their
+            // telemetry waits overlap.
+            let _ = join4(
+                m1.throttle_with_telemetry(throttle),
+                m2.throttle_with_telemetry(throttle),
+                m3.throttle_with_telemetry(throttle),
+                m4.throttle_with_telemetry(throttle),
+            )
+            .await;
             Timer::after(Duration::from_micros(500)).await;
         }
     }
@@ -114,10 +125,13 @@ async fn main(_spawner: Spawner) {
     // -------------------------------------------------------------------------
     info!("Holding throttle={}, reading telemetry...", CRUISE_THROTTLE);
     for i in 0..2000u32 {
-        let r1 = m1.throttle_with_telemetry(CRUISE_THROTTLE).await;
-        let r2 = m2.throttle_with_telemetry(CRUISE_THROTTLE).await;
-        let r3 = m3.throttle_with_telemetry(CRUISE_THROTTLE).await;
-        let r4 = m4.throttle_with_telemetry(CRUISE_THROTTLE).await;
+        let (r1, r2, r3, r4) = join4(
+            m1.throttle_with_telemetry(CRUISE_THROTTLE),
+            m2.throttle_with_telemetry(CRUISE_THROTTLE),
+            m3.throttle_with_telemetry(CRUISE_THROTTLE),
+            m4.throttle_with_telemetry(CRUISE_THROTTLE),
+        )
+        .await;
         Timer::after(Duration::from_micros(500)).await;
 
         if i % 500 == 0 {
@@ -138,10 +152,13 @@ async fn main(_spawner: Spawner) {
     info!("Ramping down...");
     for throttle in (0..=CRUISE_THROTTLE).rev().step_by(5) {
         for _ in 0..40 {
-            let _ = m1.throttle_with_telemetry(throttle).await;
-            let _ = m2.throttle_with_telemetry(throttle).await;
-            let _ = m3.throttle_with_telemetry(throttle).await;
-            let _ = m4.throttle_with_telemetry(throttle).await;
+            let _ = join4(
+                m1.throttle_with_telemetry(throttle),
+                m2.throttle_with_telemetry(throttle),
+                m3.throttle_with_telemetry(throttle),
+                m4.throttle_with_telemetry(throttle),
+            )
+            .await;
             Timer::after(Duration::from_micros(500)).await;
         }
     }
