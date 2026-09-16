@@ -63,6 +63,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Notes
 
+- CI now fmt-checks and clippy-checks `examples/`. It is a nested workspace, so the
+  root `cargo fmt --all` never reached it and clippy was never run on it at all;
+  both had drifted. Example builds always gated plain rustc warnings via `RUSTFLAGS`.
 - Multi-ESC bidirectional is built and CI-checked on every supported chip but has not
   been validated against four ESCs on hardware; single-ESC bidirectional remains the
   tested path

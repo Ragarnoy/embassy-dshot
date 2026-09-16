@@ -152,7 +152,7 @@ async fn main(_spawner: Spawner) {
             }
 
             // Also try to capture EDT sensor data periodically
-            if total_samples % 50 == 0 {
+            if total_samples.is_multiple_of(50) {
                 if let Ok(edt) = dshot.read_extended_telemetry(throttle).await {
                     match edt {
                         embassy_dshot::ExtendedTelemetry::Temperature(t) => {
@@ -188,8 +188,7 @@ async fn main(_spawner: Spawner) {
             let mut filtered_min: u32 = u32::MAX;
             let mut filtered_max: u32 = 0;
 
-            for i in 0..rpm_count {
-                let rpm = rpm_buf[i];
+            for &rpm in rpm_buf.iter().take(rpm_count) {
                 if rpm >= lower && rpm <= upper {
                     filtered_sum += u64::from(rpm);
                     filtered_count += 1;

@@ -160,11 +160,7 @@ async fn main(_spawner: Spawner) {
     }
 
     let total = success_count + gcr_error_count + crc_error_count + timeout_count;
-    let success_pct = if total > 0 {
-        success_count * 100 / total
-    } else {
-        0
-    };
+    let success_pct = (success_count * 100).checked_div(total).unwrap_or(0);
 
     info!("=== {} Results ({} samples) ===", speed_name, total);
     info!("Success: {}/{} ({}%)", success_count, total, success_pct);

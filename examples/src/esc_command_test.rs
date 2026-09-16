@@ -305,11 +305,7 @@ async fn main(_spawner: Spawner) {
         "Baseline: {}/{} OK ({}%), GCR={} CRC={} timeout={}",
         base_ok,
         base_total,
-        if base_total > 0 {
-            base_ok * 100 / base_total
-        } else {
-            0
-        },
+        (base_ok * 100).checked_div(base_total).unwrap_or(0),
         base_gcr,
         base_crc,
         base_timeout
@@ -442,11 +438,7 @@ async fn main(_spawner: Spawner) {
         "EDT: {}/{} OK ({}%), GCR={} CRC={} timeout={}",
         edt_ok,
         edt_total,
-        if edt_total > 0 {
-            edt_ok * 100 / edt_total
-        } else {
-            0
-        },
+        (edt_ok * 100).checked_div(edt_total).unwrap_or(0),
         edt_gcr,
         edt_crc,
         edt_timeout

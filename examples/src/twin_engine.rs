@@ -153,11 +153,7 @@ async fn main(_spawner: Spawner) {
                 // Consider RPMs "matched" if within 10% of average
                 let avg = (rpm1 + rpm2) / 2;
                 let threshold = avg / 10; // 10%
-                let diff = if rpm1 > rpm2 {
-                    rpm1 - rpm2
-                } else {
-                    rpm2 - rpm1
-                };
+                let diff = rpm1.abs_diff(rpm2);
 
                 if diff <= threshold {
                     matched += 1;
@@ -175,7 +171,7 @@ async fn main(_spawner: Spawner) {
                         rpm1,
                         rpm2,
                         diff,
-                        if avg > 0 { diff * 100 / avg } else { 0 }
+                        (diff * 100).checked_div(avg).unwrap_or(0)
                     );
                 }
             }
@@ -191,11 +187,7 @@ async fn main(_spawner: Spawner) {
         "Matched (<10%%): {}/{} ({}%)",
         matched,
         total_good,
-        if total_good > 0 {
-            matched * 100 / total_good
-        } else {
-            0
-        }
+        (matched * 100).checked_div(total_good).unwrap_or(0)
     );
     info!("Drifted (>10%%): {}", mismatched);
     info!(

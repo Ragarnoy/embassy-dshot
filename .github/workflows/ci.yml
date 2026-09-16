@@ -84,6 +84,9 @@ jobs:
       - uses: taiki-e/install-action@cargo-hack
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
+      # `examples/` is a nested workspace, so the `--all` above never descends
+      # into it. Check it explicitly or it drifts unnoticed.
+      - run: cargo fmt --manifest-path examples/Cargo.toml --all --check
       - name: clippy (host powerset)
         run: |
           cargo hack clippy --feature-powerset --depth 2 \
@@ -119,5 +122,12 @@ jobs:
       - name: cargo build
         run: |
           cargo build --manifest-path examples/Cargo.toml \
+            --no-default-features --features ${{ matrix.chip }} \
+            --target ${{ matrix.target }}
+      # The build above only gates rustc warnings, via RUSTFLAGS. Clippy's own
+      # lints went unchecked here until 0.5.0, so the examples had drifted.
+      - name: cargo clippy
+        run: |
+          cargo clippy --manifest-path examples/Cargo.toml --bins \
             --no-default-features --features ${{ matrix.chip }} \
             --target ${{ matrix.target }}
