@@ -50,8 +50,15 @@ async fn arm_esc(dshot: &mut BidirDshotPio<'_, impl embassy_rp::pio::Instance, 0
 }
 
 /// Brief motor spin at low throttle for direction/mode verification
-async fn brief_spin(dshot: &mut BidirDshotPio<'_, impl embassy_rp::pio::Instance, 0>, throttle: u16, duration_ms: u32) {
-    info!("Spinning motor at throttle {} for {}ms...", throttle, duration_ms);
+async fn brief_spin(
+    dshot: &mut BidirDshotPio<'_, impl embassy_rp::pio::Instance, 0>,
+    throttle: u16,
+    duration_ms: u32,
+) {
+    info!(
+        "Spinning motor at throttle {} for {}ms...",
+        throttle, duration_ms
+    );
     // Ramp up
     for t in (0..=throttle).step_by(10) {
         for _ in 0..10 {
@@ -86,9 +93,7 @@ async fn main(_spawner: Spawner) {
     info!("SAFETY: Ensure propeller is removed!");
 
     let Pio {
-        mut common,
-        sm0,
-        ..
+        mut common, sm0, ..
     } = Pio::new(p.PIO0, Irqs);
     let prog = BidirDshotProgram::new(&mut common);
     let mut dshot = BidirDshotPio::new(sm0, &mut common, p.PIN_15, &prog, DshotSpeed::DShot600);
@@ -132,7 +137,11 @@ async fn main(_spawner: Spawner) {
     arm_esc(&mut dshot, 1000).await;
 
     info!("Setting SpinDirectionNormal (6x)...");
-    defmt::unwrap!(dshot.send_command_repeated_async(Command::SpinDirectionNormal, SETTINGS_REPEAT).await);
+    defmt::unwrap!(
+        dshot
+            .send_command_repeated_async(Command::SpinDirectionNormal, SETTINGS_REPEAT)
+            .await
+    );
     Timer::after(Duration::from_millis(100)).await;
     info!("Spinning motor forward...");
     brief_spin(&mut dshot, TEST_THROTTLE, 1000).await;
@@ -140,7 +149,11 @@ async fn main(_spawner: Spawner) {
     arm_esc(&mut dshot, 1000).await;
 
     info!("Setting SpinDirectonReversed (6x)...");
-    defmt::unwrap!(dshot.send_command_repeated_async(Command::SpinDirectonReversed, SETTINGS_REPEAT).await);
+    defmt::unwrap!(
+        dshot
+            .send_command_repeated_async(Command::SpinDirectonReversed, SETTINGS_REPEAT)
+            .await
+    );
     Timer::after(Duration::from_millis(100)).await;
     info!("Spinning motor reversed...");
     brief_spin(&mut dshot, TEST_THROTTLE, 1000).await;
@@ -148,7 +161,11 @@ async fn main(_spawner: Spawner) {
     // Restore normal direction
     arm_esc(&mut dshot, 500).await;
     info!("Restoring SpinDirectionNormal (6x)...");
-    defmt::unwrap!(dshot.send_command_repeated_async(Command::SpinDirectionNormal, SETTINGS_REPEAT).await);
+    defmt::unwrap!(
+        dshot
+            .send_command_repeated_async(Command::SpinDirectionNormal, SETTINGS_REPEAT)
+            .await
+    );
     Timer::after(Duration::from_millis(100)).await;
 
     info!("Phase 2 complete — verify: motor spun both directions");
@@ -160,13 +177,21 @@ async fn main(_spawner: Spawner) {
     arm_esc(&mut dshot, 1000).await;
 
     info!("Enabling ThreeDModeOn (6x)...");
-    defmt::unwrap!(dshot.send_command_repeated_async(Command::ThreeDModeOn, SETTINGS_REPEAT).await);
+    defmt::unwrap!(
+        dshot
+            .send_command_repeated_async(Command::ThreeDModeOn, SETTINGS_REPEAT)
+            .await
+    );
     Timer::after(Duration::from_millis(100)).await;
     info!("Brief low throttle test in 3D mode...");
     brief_spin(&mut dshot, 100, 500).await;
 
     info!("Disabling ThreeDModeOff (6x)...");
-    defmt::unwrap!(dshot.send_command_repeated_async(Command::ThreeDModeOff, SETTINGS_REPEAT).await);
+    defmt::unwrap!(
+        dshot
+            .send_command_repeated_async(Command::ThreeDModeOff, SETTINGS_REPEAT)
+            .await
+    );
     Timer::after(Duration::from_millis(100)).await;
 
     info!("Phase 3 complete — verify: 3D mode toggled (if ESC supports it)");
@@ -192,7 +217,11 @@ async fn main(_spawner: Spawner) {
 
     for (cmd, name) in leds_on {
         info!("Sending {} (6x)...", name);
-        defmt::unwrap!(dshot.send_command_repeated_async(cmd, SETTINGS_REPEAT).await);
+        defmt::unwrap!(
+            dshot
+                .send_command_repeated_async(cmd, SETTINGS_REPEAT)
+                .await
+        );
         Timer::after(Duration::from_millis(500)).await;
         // Keep alive
         for _ in 0..100 {
@@ -202,7 +231,11 @@ async fn main(_spawner: Spawner) {
     }
     for (cmd, name) in leds_off {
         info!("Sending {} (6x)...", name);
-        defmt::unwrap!(dshot.send_command_repeated_async(cmd, SETTINGS_REPEAT).await);
+        defmt::unwrap!(
+            dshot
+                .send_command_repeated_async(cmd, SETTINGS_REPEAT)
+                .await
+        );
         Timer::after(Duration::from_millis(500)).await;
         for _ in 0..100 {
             defmt::unwrap!(dshot.send_command_async(Command::MotorStop).await);
@@ -240,7 +273,12 @@ async fn main(_spawner: Spawner) {
             Ok((_raw, Ok(telem))) => {
                 base_ok += 1;
                 if base_ok <= 3 {
-                    info!("  [{}] OK eRPM={} period={}us", i, telem.erpm, telem.period_us.unwrap_or(0));
+                    info!(
+                        "  [{}] OK eRPM={} period={}us",
+                        i,
+                        telem.erpm,
+                        telem.period_us.unwrap_or(0)
+                    );
                 }
             }
             Ok((raw, Err(embassy_dshot::DshotError::GcrDecodeError))) => {
@@ -255,16 +293,27 @@ async fn main(_spawner: Spawner) {
                     info!("  [{}] CRC raw={:#010x}", i, raw);
                 }
             }
-            Err(_) => { base_timeout += 1; }
+            Err(_) => {
+                base_timeout += 1;
+            }
             _ => {}
         }
         Timer::after(Duration::from_micros(500)).await;
     }
     let base_total = base_ok + base_gcr + base_crc + base_timeout;
-    info!("Baseline: {}/{} OK ({}%), GCR={} CRC={} timeout={}",
-        base_ok, base_total,
-        if base_total > 0 { base_ok * 100 / base_total } else { 0 },
-        base_gcr, base_crc, base_timeout);
+    info!(
+        "Baseline: {}/{} OK ({}%), GCR={} CRC={} timeout={}",
+        base_ok,
+        base_total,
+        if base_total > 0 {
+            base_ok * 100 / base_total
+        } else {
+            0
+        },
+        base_gcr,
+        base_crc,
+        base_timeout
+    );
 
     // Stop motor
     for _ in 0..500 {
@@ -277,7 +326,11 @@ async fn main(_spawner: Spawner) {
     arm_esc(&mut dshot, 1000).await;
 
     info!("Enabling ExtendedTelemetryEnable (6x)...");
-    defmt::unwrap!(dshot.send_command_repeated_async(Command::ExtendedTelemetryEnable, SETTINGS_REPEAT).await);
+    defmt::unwrap!(
+        dshot
+            .send_command_repeated_async(Command::ExtendedTelemetryEnable, SETTINGS_REPEAT)
+            .await
+    );
 
     // Check for version response
     info!("Checking for EDT version response...");
@@ -330,7 +383,12 @@ async fn main(_spawner: Spawner) {
                             embassy_dshot::ExtendedTelemetry::Erpm { erpm, period_us } => {
                                 edt_erpm += 1;
                                 if edt_erpm <= 3 {
-                                    info!("  [{}] eRPM={} period={}us", i, erpm, period_us.unwrap_or(0));
+                                    info!(
+                                        "  [{}] eRPM={} period={}us",
+                                        i,
+                                        erpm,
+                                        period_us.unwrap_or(0)
+                                    );
                                 }
                             }
                             embassy_dshot::ExtendedTelemetry::Temperature(t) => {
@@ -339,7 +397,13 @@ async fn main(_spawner: Spawner) {
                             }
                             embassy_dshot::ExtendedTelemetry::Voltage(mv) => {
                                 edt_volt += 1;
-                                info!("  [{}] Voltage={}mV ({}.{}V)", i, mv, mv / 1000, (mv % 1000) / 10);
+                                info!(
+                                    "  [{}] Voltage={}mV ({}.{}V)",
+                                    i,
+                                    mv,
+                                    mv / 1000,
+                                    (mv % 1000) / 10
+                                );
                             }
                             embassy_dshot::ExtendedTelemetry::Current(ma) => {
                                 edt_curr += 1;
@@ -367,17 +431,30 @@ async fn main(_spawner: Spawner) {
                     }
                 }
             }
-            Err(_) => { edt_timeout += 1; }
+            Err(_) => {
+                edt_timeout += 1;
+            }
         }
         Timer::after(Duration::from_micros(500)).await;
     }
     let edt_total = edt_ok + edt_gcr + edt_crc + edt_timeout;
-    info!("EDT: {}/{} OK ({}%), GCR={} CRC={} timeout={}",
-        edt_ok, edt_total,
-        if edt_total > 0 { edt_ok * 100 / edt_total } else { 0 },
-        edt_gcr, edt_crc, edt_timeout);
-    info!("  eRPM={} temp={} volt={} curr={} status={} other={}",
-        edt_erpm, edt_temp, edt_volt, edt_curr, edt_status, edt_other);
+    info!(
+        "EDT: {}/{} OK ({}%), GCR={} CRC={} timeout={}",
+        edt_ok,
+        edt_total,
+        if edt_total > 0 {
+            edt_ok * 100 / edt_total
+        } else {
+            0
+        },
+        edt_gcr,
+        edt_crc,
+        edt_timeout
+    );
+    info!(
+        "  eRPM={} temp={} volt={} curr={} status={} other={}",
+        edt_erpm, edt_temp, edt_volt, edt_curr, edt_status, edt_other
+    );
 
     // Stop motor
     for _ in 0..500 {
@@ -386,7 +463,11 @@ async fn main(_spawner: Spawner) {
     }
 
     info!("Disabling ExtendedTelemetryDisable (6x)...");
-    defmt::unwrap!(dshot.send_command_repeated_async(Command::ExtendedTelemetryDisable, SETTINGS_REPEAT).await);
+    defmt::unwrap!(
+        dshot
+            .send_command_repeated_async(Command::ExtendedTelemetryDisable, SETTINGS_REPEAT)
+            .await
+    );
     Timer::after(Duration::from_millis(100)).await;
 
     info!("Phase 5 complete — verify: telemetry values logged and plausible");
@@ -398,7 +479,11 @@ async fn main(_spawner: Spawner) {
     arm_esc(&mut dshot, 1000).await;
 
     info!("Sending AudioStreamModeToggle (6x)...");
-    defmt::unwrap!(dshot.send_command_repeated_async(Command::AudioStreamModeToggle, SETTINGS_REPEAT).await);
+    defmt::unwrap!(
+        dshot
+            .send_command_repeated_async(Command::AudioStreamModeToggle, SETTINGS_REPEAT)
+            .await
+    );
     Timer::after(Duration::from_millis(500)).await;
     for _ in 0..200 {
         defmt::unwrap!(dshot.send_command_async(Command::MotorStop).await);
@@ -406,7 +491,11 @@ async fn main(_spawner: Spawner) {
     }
 
     info!("Sending SilentModeToggle (6x)...");
-    defmt::unwrap!(dshot.send_command_repeated_async(Command::SilentModeToggle, SETTINGS_REPEAT).await);
+    defmt::unwrap!(
+        dshot
+            .send_command_repeated_async(Command::SilentModeToggle, SETTINGS_REPEAT)
+            .await
+    );
     Timer::after(Duration::from_millis(500)).await;
     for _ in 0..200 {
         defmt::unwrap!(dshot.send_command_async(Command::MotorStop).await);
@@ -422,11 +511,22 @@ async fn main(_spawner: Spawner) {
     arm_esc(&mut dshot, 1000).await;
 
     info!("Enabling SignalLineTelemetryEnable (6x)...");
-    defmt::unwrap!(dshot.send_command_repeated_async(Command::SignalLineTelemetryEnable, SETTINGS_REPEAT).await);
+    defmt::unwrap!(
+        dshot
+            .send_command_repeated_async(Command::SignalLineTelemetryEnable, SETTINGS_REPEAT)
+            .await
+    );
     Timer::after(Duration::from_millis(100)).await;
 
     info!("Setting SignalLineContinuousERPMTelemetry (6x)...");
-    defmt::unwrap!(dshot.send_command_repeated_async(Command::SignalLineContinuousERPMTelemetry, SETTINGS_REPEAT).await);
+    defmt::unwrap!(
+        dshot
+            .send_command_repeated_async(
+                Command::SignalLineContinuousERPMTelemetry,
+                SETTINGS_REPEAT
+            )
+            .await
+    );
     Timer::after(Duration::from_millis(100)).await;
 
     info!("Spinning motor and reading continuous telemetry...");
@@ -445,7 +545,12 @@ async fn main(_spawner: Spawner) {
             Ok(telem) => {
                 success += 1;
                 if i < 5 || i % 20 == 0 {
-                    info!("  [{}] eRPM={} period={}us", i, telem.erpm, telem.period_us.unwrap_or(0));
+                    info!(
+                        "  [{}] eRPM={} period={}us",
+                        i,
+                        telem.erpm,
+                        telem.period_us.unwrap_or(0)
+                    );
                 }
             }
             Err(e) => {
@@ -457,7 +562,11 @@ async fn main(_spawner: Spawner) {
         }
         Timer::after(Duration::from_micros(500)).await;
     }
-    info!("Signal line telemetry: {}/{} success", success, success + errors);
+    info!(
+        "Signal line telemetry: {}/{} success",
+        success,
+        success + errors
+    );
 
     // Stop
     for _ in 0..500 {
@@ -466,7 +575,11 @@ async fn main(_spawner: Spawner) {
     }
 
     info!("Disabling SignalLineTelemetryDisable (6x)...");
-    defmt::unwrap!(dshot.send_command_repeated_async(Command::SignalLineTelemetryDisable, SETTINGS_REPEAT).await);
+    defmt::unwrap!(
+        dshot
+            .send_command_repeated_async(Command::SignalLineTelemetryDisable, SETTINGS_REPEAT)
+            .await
+    );
     Timer::after(Duration::from_millis(100)).await;
 
     info!("Phase 7 complete — verify: continuous telemetry stream received");

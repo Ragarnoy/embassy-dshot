@@ -67,12 +67,13 @@ async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     info!("=== RPM Range Finder (EDT DShot) ===");
     info!("SAFETY: Ensure propeller is removed!");
-    info!("Motor poles: {}, Max throttle: {}", MOTOR_POLES, MAX_THROTTLE);
+    info!(
+        "Motor poles: {}, Max throttle: {}",
+        MOTOR_POLES, MAX_THROTTLE
+    );
 
     let Pio {
-        mut common,
-        sm0,
-        ..
+        mut common, sm0, ..
     } = Pio::new(p.PIO0, Irqs);
     let prog = BidirDshotProgram::new(&mut common);
     let mut dshot = BidirDshotPio::new(sm0, &mut common, p.PIN_14, &prog, DshotSpeed::DShot300);
@@ -85,9 +86,11 @@ async fn main(_spawner: Spawner) {
     info!("ESC armed");
 
     info!("Enabling Extended Telemetry (6x)...");
-    defmt::unwrap!(dshot
-        .send_command_repeated_async(Command::ExtendedTelemetryEnable, SETTINGS_REPEAT)
-        .await);
+    defmt::unwrap!(
+        dshot
+            .send_command_repeated_async(Command::ExtendedTelemetryEnable, SETTINGS_REPEAT)
+            .await
+    );
     Timer::after(Duration::from_millis(100)).await;
 
     // Keep alive after EDT enable
@@ -222,8 +225,7 @@ async fn main(_spawner: Spawner) {
 
                 info!(
                     "  T={}: avg={}  min={}  max={}  ({}/{})",
-                    throttle, avg_rpm, filtered_min, filtered_max,
-                    filtered_count, rpm_count
+                    throttle, avg_rpm, filtered_min, filtered_max, filtered_count, rpm_count
                 );
             } else {
                 info!(
@@ -232,10 +234,7 @@ async fn main(_spawner: Spawner) {
                 );
             }
         } else {
-            info!(
-                "  T={}: {} valid readings (unstable)",
-                throttle, rpm_count
-            );
+            info!("  T={}: {} valid readings (unstable)", throttle, rpm_count);
         }
 
         throttle = throttle.saturating_add(THROTTLE_STEP);
@@ -261,9 +260,11 @@ async fn main(_spawner: Spawner) {
     }
 
     // Disable EDT
-    defmt::unwrap!(dshot
-        .send_command_repeated_async(Command::ExtendedTelemetryDisable, SETTINGS_REPEAT)
-        .await);
+    defmt::unwrap!(
+        dshot
+            .send_command_repeated_async(Command::ExtendedTelemetryDisable, SETTINGS_REPEAT)
+            .await
+    );
     Timer::after(Duration::from_millis(100)).await;
 
     // =========================================================================
@@ -273,8 +274,14 @@ async fn main(_spawner: Spawner) {
     info!("=== RPM Range Results ===");
     info!("============================================");
     if global_min_rpm < u32::MAX {
-        info!("Min RPM: {} (at throttle {})", global_min_rpm, min_rpm_throttle);
-        info!("Max RPM: {} (at throttle {})", global_max_rpm, max_rpm_throttle);
+        info!(
+            "Min RPM: {} (at throttle {})",
+            global_min_rpm, min_rpm_throttle
+        );
+        info!(
+            "Max RPM: {} (at throttle {})",
+            global_max_rpm, max_rpm_throttle
+        );
         info!("First stable spin at throttle: {}", first_spin_throttle);
     } else {
         info!("No valid RPM readings obtained!");

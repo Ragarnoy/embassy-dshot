@@ -153,7 +153,11 @@ async fn main(_spawner: Spawner) {
                 // Consider RPMs "matched" if within 10% of average
                 let avg = (rpm1 + rpm2) / 2;
                 let threshold = avg / 10; // 10%
-                let diff = if rpm1 > rpm2 { rpm1 - rpm2 } else { rpm2 - rpm1 };
+                let diff = if rpm1 > rpm2 {
+                    rpm1 - rpm2
+                } else {
+                    rpm2 - rpm1
+                };
 
                 if diff <= threshold {
                     matched += 1;
@@ -166,7 +170,11 @@ async fn main(_spawner: Spawner) {
                     let status = if diff <= threshold { "MATCH" } else { "DRIFT" };
                     info!(
                         "  [{}] {} E1={}rpm E2={}rpm diff={}rpm ({}%)",
-                        i, status, rpm1, rpm2, diff,
+                        i,
+                        status,
+                        rpm1,
+                        rpm2,
+                        diff,
                         if avg > 0 { diff * 100 / avg } else { 0 }
                     );
                 }
@@ -183,10 +191,17 @@ async fn main(_spawner: Spawner) {
         "Matched (<10%%): {}/{} ({}%)",
         matched,
         total_good,
-        if total_good > 0 { matched * 100 / total_good } else { 0 }
+        if total_good > 0 {
+            matched * 100 / total_good
+        } else {
+            0
+        }
     );
     info!("Drifted (>10%%): {}", mismatched);
-    info!("E1 only: {}, E2 only: {}, Both fail: {}", e1_only, e2_only, both_fail);
+    info!(
+        "E1 only: {}, E2 only: {}, Both fail: {}",
+        e1_only, e2_only, both_fail
+    );
 
     // -------------------------------------------------------------------------
     // Phase 4: Differential throttle

@@ -57,9 +57,7 @@ async fn main(_spawner: Spawner) {
     info!("SAFETY: Ensure propeller is removed!");
 
     let Pio {
-        mut common,
-        sm0,
-        ..
+        mut common, sm0, ..
     } = Pio::new(p.PIO0, Irqs);
     let prog = BidirDshotProgram::new(&mut common);
     let mut dshot = BidirDshotPio::new(sm0, &mut common, p.PIN_11, &prog, DSHOT_SPEED);
@@ -86,7 +84,10 @@ async fn main(_spawner: Spawner) {
         defmt::unwrap!(dshot.send_command_async(Command::MotorStop).await);
         Timer::after(Duration::from_micros(1000)).await;
     }
-    info!("Did you hear a beep? If yes, {} communication works!", speed_name);
+    info!(
+        "Did you hear a beep? If yes, {} communication works!",
+        speed_name
+    );
 
     // -------------------------------------------------------------------------
     // Safety countdown
@@ -111,7 +112,10 @@ async fn main(_spawner: Spawner) {
     // -------------------------------------------------------------------------
     // Hold and read telemetry
     // -------------------------------------------------------------------------
-    info!("Holding throttle={}, reading {} telemetry samples...", MAX_THROTTLE, SAMPLE_COUNT);
+    info!(
+        "Holding throttle={}, reading {} telemetry samples...",
+        MAX_THROTTLE, SAMPLE_COUNT
+    );
     info!("Logging raw RX for first 10 GCR errors + 10 CRC errors...");
 
     let mut success_count = 0u32;
@@ -125,9 +129,14 @@ async fn main(_spawner: Spawner) {
                 success_count += 1;
                 if success_count <= 5 || i % 500 == 0 {
                     let rpm_14 = telem.rpm(14);
-                    info!("  [{}] OK  raw={:#010x} eRPM={} RPM(14p)={} period={}us",
-                        i, raw, telem.erpm, rpm_14,
-                        telem.period_us.unwrap_or(0));
+                    info!(
+                        "  [{}] OK  raw={:#010x} eRPM={} RPM(14p)={} period={}us",
+                        i,
+                        raw,
+                        telem.erpm,
+                        rpm_14,
+                        telem.period_us.unwrap_or(0)
+                    );
                 }
             }
             Ok((raw, Err(DshotError::GcrDecodeError))) => {
@@ -151,7 +160,11 @@ async fn main(_spawner: Spawner) {
     }
 
     let total = success_count + gcr_error_count + crc_error_count + timeout_count;
-    let success_pct = if total > 0 { success_count * 100 / total } else { 0 };
+    let success_pct = if total > 0 {
+        success_count * 100 / total
+    } else {
+        0
+    };
 
     info!("=== {} Results ({} samples) ===", speed_name, total);
     info!("Success: {}/{} ({}%)", success_count, total, success_pct);
