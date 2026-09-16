@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - unreleased
+
+### Changed
+
+- **Breaking:** `BidirDshotPio` no longer owns a whole PIO block. The PIO program is
+  now loaded once per block via `BidirDshotProgram::new(&mut common)` and shared by up
+  to four `BidirDshotPio` drivers, each taking its own state machine and pin. The
+  program is 28 instructions against a 32-instruction block, so one copy per motor
+  failed at the second motor.
+
+  ```rust,ignore
+  // 0.4
+  let mut dshot = BidirDshotPio::new(p.PIO0, Irqs, p.PIN_11, DshotSpeed::DShot300);
+
+  // 0.5
+  let Pio { mut common, sm0, .. } = Pio::new(p.PIO0, Irqs);
+  let prog = BidirDshotProgram::new(&mut common);
+  let mut dshot = BidirDshotPio::new(sm0, &mut common, p.PIN_11, &prog, DshotSpeed::DShot300);
+  ```
+
+  The type gained a state-machine index parameter, `BidirDshotPio<'a, PIO, const SM: usize>`,
+  so drivers for different state machines are different types and cannot share an array.
+
+### Added
+
+- `BidirDshotProgram`, the shared per-PIO-block program handle
+- `quad_engine` example — four bidirectional ESCs on one PIO block, with their
+  telemetry reads overlapped via `join4` rather than awaited in turn
+
+### Notes
+
+- Multi-ESC bidirectional is built and CI-checked on every supported chip but has not
+  been validated against four ESCs on hardware; single-ESC bidirectional remains the
+  tested path
+
 ## [0.4.0] - 2026-09-14
 
 ### Added
