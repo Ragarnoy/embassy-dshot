@@ -25,9 +25,6 @@ embassy-dshot = { version = "0.5", features = ["rp235xa"] }
 embassy-dshot = { version = "0.5", features = ["rp235xb"] }
 ```
 
-The `rp2350` feature still works as an alias for `rp235xa`, but is deprecated and
-will be removed in 0.5.
-
 ## Example
 
 ### Single ESC

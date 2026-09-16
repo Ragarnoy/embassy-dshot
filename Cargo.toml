@@ -33,9 +33,6 @@ rp2040 = ["_rp", "embassy-rp/rp2040"]
 rp235xa = ["_rp", "embassy-rp/rp235xa"]
 rp235xb = ["_rp", "embassy-rp/rp235xb"]
 
-# Deprecated alias for `rp235xa`; kept through 0.4.x, removed in 0.5.0.
-rp2350 = ["rp235xa"]
-
 # Internal: enabled by the chip features above. Not for direct use.
 _rp = ["dep:embassy-rp", "dep:embassy-time"]
 

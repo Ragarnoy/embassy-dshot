@@ -56,6 +56,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the hardware discards when full — frames could go missing with no indication. Both
   now check for space and report `TxBusy` instead.
 
+### Removed
+
+- The `rp2350` feature, deprecated in 0.4.0 as an alias for `rp235xa`. Pick the
+  feature matching your chip package: `rp235xa` or `rp235xb`.
+
 ### Notes
 
 - Multi-ESC bidirectional is built and CI-checked on every supported chip but has not

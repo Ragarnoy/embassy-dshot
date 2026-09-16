@@ -36,7 +36,7 @@ jobs:
       - name: cargo hack test --feature-powerset
         run: |
           cargo hack test --feature-powerset --depth 2 \
-            --exclude-features rp235xa,rp235xb,rp2350,_rp
+            --exclude-features rp235xa,rp235xb,_rp
 
   # Every chip feature against its real target. This is the only thing guarding
   # rp235xb, which no maintainer currently has hardware for.
@@ -49,17 +49,13 @@ jobs:
         include:
           - chip: rp2040
             target: thumbv6m-none-eabi
-            exclude: rp235xa,rp235xb,rp2350
+            exclude: rp235xa,rp235xb
           - chip: rp235xa
             target: thumbv8m.main-none-eabihf
-            exclude: rp2040,rp235xb,rp2350
+            exclude: rp2040,rp235xb
           - chip: rp235xb
             target: thumbv8m.main-none-eabihf
-            exclude: rp2040,rp235xa,rp2350
-          # Deprecated alias for rp235xa; remove with the feature in 0.5.0.
-          - chip: rp2350
-            target: thumbv8m.main-none-eabihf
-            exclude: rp2040,rp235xa,rp235xb
+            exclude: rp2040,rp235xa
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -91,7 +87,7 @@ jobs:
       - name: clippy (host powerset)
         run: |
           cargo hack clippy --feature-powerset --depth 2 \
-            --exclude-features rp235xa,rp235xb,rp2350,_rp \
+            --exclude-features rp235xa,rp235xb,_rp \
             -- -W clippy::pedantic -W clippy::nursery
       - name: clippy (rp235x)
         run: |
