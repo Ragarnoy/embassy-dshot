@@ -57,9 +57,7 @@ async fn main(_spawner: Spawner) {
     info!("SAFETY: Ensure propeller is removed!");
 
     let Pio {
-        mut common,
-        sm0,
-        ..
+        mut common, sm0, ..
     } = Pio::new(p.PIO0, Irqs);
     let prog = BidirDshotProgram::new(&mut common);
     let mut dshot = BidirDshotPio::new(sm0, &mut common, p.PIN_11, &prog, DSHOT_SPEED);
@@ -70,7 +68,7 @@ async fn main(_spawner: Spawner) {
     // Arm ESC with MotorStop (2 seconds)
     // -------------------------------------------------------------------------
     info!("Arming ESC (2s)...");
-    dshot.arm_async(Duration::from_secs(2)).await;
+    defmt::unwrap!(dshot.arm_async(Duration::from_secs(2)).await);
     info!("ESC armed");
 
     // -------------------------------------------------------------------------
@@ -78,21 +76,26 @@ async fn main(_spawner: Spawner) {
     // -------------------------------------------------------------------------
     info!("Beep test...");
     for _ in 0..10 {
-        dshot.send_command_async(Command::Beep1).await;
+        defmt::unwrap!(dshot.send_command_async(Command::Beep1).await);
         Timer::after(Duration::from_micros(1000)).await;
     }
     Timer::after(Duration::from_millis(320)).await;
     for _ in 0..200 {
-        dshot.send_command_async(Command::MotorStop).await;
+        if let Err(e) = dshot.send_command_async(Command::MotorStop).await {
+            defmt::warn!("dshot: MotorStop frame dropped: {}", e);
+        }
         Timer::after(Duration::from_micros(1000)).await;
     }
-    info!("Did you hear a beep? If yes, {} communication works!", speed_name);
+    info!(
+        "Did you hear a beep? If yes, {} communication works!",
+        speed_name
+    );
 
     // -------------------------------------------------------------------------
     // Safety countdown
     // -------------------------------------------------------------------------
     info!("Motor spin in 3 seconds — SECURE MOTOR!");
-    dshot.arm_async(Duration::from_secs(3)).await;
+    defmt::unwrap!(dshot.arm_async(Duration::from_secs(3)).await);
 
     // -------------------------------------------------------------------------
     // Ramp up
@@ -111,7 +114,10 @@ async fn main(_spawner: Spawner) {
     // -------------------------------------------------------------------------
     // Hold and read telemetry
     // -------------------------------------------------------------------------
-    info!("Holding throttle={}, reading {} telemetry samples...", MAX_THROTTLE, SAMPLE_COUNT);
+    info!(
+        "Holding throttle={}, reading {} telemetry samples...",
+        MAX_THROTTLE, SAMPLE_COUNT
+    );
     info!("Logging raw RX for first 10 GCR errors + 10 CRC errors...");
 
     let mut success_count = 0u32;
@@ -125,9 +131,14 @@ async fn main(_spawner: Spawner) {
                 success_count += 1;
                 if success_count <= 5 || i % 500 == 0 {
                     let rpm_14 = telem.rpm(14);
-                    info!("  [{}] OK  raw={:#010x} eRPM={} RPM(14p)={} period={}us",
-                        i, raw, telem.erpm, rpm_14,
-                        telem.period_us.unwrap_or(0));
+                    info!(
+                        "  [{}] OK  raw={:#010x} eRPM={} RPM(14p)={} period={}us",
+                        i,
+                        raw,
+                        telem.erpm,
+                        rpm_14,
+                        telem.period_us.unwrap_or(0)
+                    );
                 }
             }
             Ok((raw, Err(DshotError::GcrDecodeError))) => {
@@ -151,7 +162,7 @@ async fn main(_spawner: Spawner) {
     }
 
     let total = success_count + gcr_error_count + crc_error_count + timeout_count;
-    let success_pct = if total > 0 { success_count * 100 / total } else { 0 };
+    let success_pct = (success_count * 100).checked_div(total).unwrap_or(0);
 
     info!("=== {} Results ({} samples) ===", speed_name, total);
     info!("Success: {}/{} ({}%)", success_count, total, success_pct);
@@ -181,7 +192,9 @@ async fn main(_spawner: Spawner) {
     // -------------------------------------------------------------------------
     info!("Stopping motor...");
     for _ in 0..2000u32 {
-        dshot.send_command_async(Command::MotorStop).await;
+        if let Err(e) = dshot.send_command_async(Command::MotorStop).await {
+            defmt::warn!("dshot: MotorStop frame dropped: {}", e);
+        }
         Timer::after(Duration::from_micros(500)).await;
     }
 

@@ -36,7 +36,7 @@ jobs:
       - name: cargo hack test --feature-powerset
         run: |
           cargo hack test --feature-powerset --depth 2 \
-            --exclude-features rp235xa,rp235xb,rp2350,_rp
+            --exclude-features rp235xa,rp235xb,_rp
 
   # Every chip feature against its real target. This is the only thing guarding
   # rp235xb, which no maintainer currently has hardware for.
@@ -49,17 +49,13 @@ jobs:
         include:
           - chip: rp2040
             target: thumbv6m-none-eabi
-            exclude: rp235xa,rp235xb,rp2350
+            exclude: rp235xa,rp235xb
           - chip: rp235xa
             target: thumbv8m.main-none-eabihf
-            exclude: rp2040,rp235xb,rp2350
+            exclude: rp2040,rp235xb
           - chip: rp235xb
             target: thumbv8m.main-none-eabihf
-            exclude: rp2040,rp235xa,rp2350
-          # Deprecated alias for rp235xa; remove with the feature in 0.5.0.
-          - chip: rp2350
-            target: thumbv8m.main-none-eabihf
-            exclude: rp2040,rp235xa,rp235xb
+            exclude: rp2040,rp235xa
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -88,10 +84,13 @@ jobs:
       - uses: taiki-e/install-action@cargo-hack
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
+      # `examples/` is a nested workspace, so the `--all` above never descends
+      # into it. Check it explicitly or it drifts unnoticed.
+      - run: cargo fmt --manifest-path examples/Cargo.toml --all --check
       - name: clippy (host powerset)
         run: |
           cargo hack clippy --feature-powerset --depth 2 \
-            --exclude-features rp235xa,rp235xb,rp2350,_rp \
+            --exclude-features rp235xa,rp235xb,_rp \
             -- -W clippy::pedantic -W clippy::nursery
       - name: clippy (rp235x)
         run: |
@@ -123,5 +122,16 @@ jobs:
       - name: cargo build
         run: |
           cargo build --manifest-path examples/Cargo.toml \
+            --no-default-features --features ${{ matrix.chip }} \
+            --target ${{ matrix.target }}
+      # The build above only gates rustc warnings, via RUSTFLAGS. Clippy's own
+      # lints went unchecked here until 0.5.0, so the examples had drifted.
+      # `--bins --test on_target_tests`, not `--all-targets`: the latter builds a
+      # libtest harness per bin and these targets have no `test` crate. The
+      # on-target test sets `harness = false`, so it lints on its own.
+      - name: cargo clippy
+        run: |
+          cargo clippy --manifest-path examples/Cargo.toml \
+            --bins --test on_target_tests \
             --no-default-features --features ${{ matrix.chip }} \
             --target ${{ matrix.target }}

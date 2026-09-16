@@ -9,6 +9,9 @@ pub enum DshotError {
     TelemetryTimeout,
     /// Invalid GCR encoding in telemetry response
     GcrDecodeError,
+    /// TX FIFO did not drain in time — the state machine is not consuming
+    /// frames, so the frame was not sent
+    TxBusy,
 }
 
 /// Telemetry data from ESC

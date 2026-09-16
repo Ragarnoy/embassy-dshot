@@ -38,12 +38,7 @@ async fn main(_spawner: Spawner) {
     info!("Starting DShot300 bringup test");
 
     // Initialize DShot150 on PIN_11
-    let mut dshot = DshotPio::<1, _>::new(
-        p.PIO0,
-        Irqs,
-        p.PIN_11,
-        DshotSpeed::DShot300,
-    );
+    let mut dshot = DshotPio::<1, _>::new(p.PIO0, Irqs, p.PIN_11, DshotSpeed::DShot300);
 
     info!("DShot300 initialized on PIN_11");
     info!("Expected DShot300 timing:");

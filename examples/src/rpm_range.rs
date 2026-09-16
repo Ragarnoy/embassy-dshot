@@ -67,12 +67,13 @@ async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     info!("=== RPM Range Finder (EDT DShot) ===");
     info!("SAFETY: Ensure propeller is removed!");
-    info!("Motor poles: {}, Max throttle: {}", MOTOR_POLES, MAX_THROTTLE);
+    info!(
+        "Motor poles: {}, Max throttle: {}",
+        MOTOR_POLES, MAX_THROTTLE
+    );
 
     let Pio {
-        mut common,
-        sm0,
-        ..
+        mut common, sm0, ..
     } = Pio::new(p.PIO0, Irqs);
     let prog = BidirDshotProgram::new(&mut common);
     let mut dshot = BidirDshotPio::new(sm0, &mut common, p.PIN_14, &prog, DshotSpeed::DShot300);
@@ -81,18 +82,22 @@ async fn main(_spawner: Spawner) {
     // Phase 1: Arm and enable EDT
     // =========================================================================
     info!("Arming ESC (2s)...");
-    dshot.arm_async(Duration::from_secs(2)).await;
+    defmt::unwrap!(dshot.arm_async(Duration::from_secs(2)).await);
     info!("ESC armed");
 
     info!("Enabling Extended Telemetry (6x)...");
-    dshot
-        .send_command_repeated_async(Command::ExtendedTelemetryEnable, SETTINGS_REPEAT)
-        .await;
+    defmt::unwrap!(
+        dshot
+            .send_command_repeated_async(Command::ExtendedTelemetryEnable, SETTINGS_REPEAT)
+            .await
+    );
     Timer::after(Duration::from_millis(100)).await;
 
     // Keep alive after EDT enable
     for _ in 0..200 {
-        dshot.send_command_async(Command::MotorStop).await;
+        if let Err(e) = dshot.send_command_async(Command::MotorStop).await {
+            defmt::warn!("dshot: MotorStop frame dropped: {}", e);
+        }
         Timer::after(Duration::from_micros(500)).await;
     }
 
@@ -149,7 +154,7 @@ async fn main(_spawner: Spawner) {
             }
 
             // Also try to capture EDT sensor data periodically
-            if total_samples % 50 == 0 {
+            if total_samples.is_multiple_of(50) {
                 if let Ok(edt) = dshot.read_extended_telemetry(throttle).await {
                     match edt {
                         embassy_dshot::ExtendedTelemetry::Temperature(t) => {
@@ -185,8 +190,7 @@ async fn main(_spawner: Spawner) {
             let mut filtered_min: u32 = u32::MAX;
             let mut filtered_max: u32 = 0;
 
-            for i in 0..rpm_count {
-                let rpm = rpm_buf[i];
+            for &rpm in rpm_buf.iter().take(rpm_count) {
                 if rpm >= lower && rpm <= upper {
                     filtered_sum += u64::from(rpm);
                     filtered_count += 1;
@@ -222,8 +226,7 @@ async fn main(_spawner: Spawner) {
 
                 info!(
                     "  T={}: avg={}  min={}  max={}  ({}/{})",
-                    throttle, avg_rpm, filtered_min, filtered_max,
-                    filtered_count, rpm_count
+                    throttle, avg_rpm, filtered_min, filtered_max, filtered_count, rpm_count
                 );
             } else {
                 info!(
@@ -232,10 +235,7 @@ async fn main(_spawner: Spawner) {
                 );
             }
         } else {
-            info!(
-                "  T={}: {} valid readings (unstable)",
-                throttle, rpm_count
-            );
+            info!("  T={}: {} valid readings (unstable)", throttle, rpm_count);
         }
 
         throttle = throttle.saturating_add(THROTTLE_STEP);
@@ -256,14 +256,18 @@ async fn main(_spawner: Spawner) {
 
     info!("Stopping motor...");
     for _ in 0..2000u32 {
-        dshot.send_command_async(Command::MotorStop).await;
+        if let Err(e) = dshot.send_command_async(Command::MotorStop).await {
+            defmt::warn!("dshot: MotorStop frame dropped: {}", e);
+        }
         Timer::after(Duration::from_micros(500)).await;
     }
 
     // Disable EDT
-    dshot
-        .send_command_repeated_async(Command::ExtendedTelemetryDisable, SETTINGS_REPEAT)
-        .await;
+    defmt::unwrap!(
+        dshot
+            .send_command_repeated_async(Command::ExtendedTelemetryDisable, SETTINGS_REPEAT)
+            .await
+    );
     Timer::after(Duration::from_millis(100)).await;
 
     // =========================================================================
@@ -273,8 +277,14 @@ async fn main(_spawner: Spawner) {
     info!("=== RPM Range Results ===");
     info!("============================================");
     if global_min_rpm < u32::MAX {
-        info!("Min RPM: {} (at throttle {})", global_min_rpm, min_rpm_throttle);
-        info!("Max RPM: {} (at throttle {})", global_max_rpm, max_rpm_throttle);
+        info!(
+            "Min RPM: {} (at throttle {})",
+            global_min_rpm, min_rpm_throttle
+        );
+        info!(
+            "Max RPM: {} (at throttle {})",
+            global_max_rpm, max_rpm_throttle
+        );
         info!("First stable spin at throttle: {}", first_spin_throttle);
     } else {
         info!("No valid RPM readings obtained!");

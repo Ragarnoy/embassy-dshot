@@ -38,12 +38,7 @@ async fn main(_spawner: Spawner) {
     info!("SAFETY: Remove propeller!");
 
     // Initialize DShot with 1 motor on PIN_11
-    let mut dshot = DshotPio::<1, _>::new(
-        p.PIO0,
-        Irqs,
-        p.PIN_15,
-        DshotSpeed::DShot300,
-    );
+    let mut dshot = DshotPio::<1, _>::new(p.PIO0, Irqs, p.PIN_15, DshotSpeed::DShot300);
 
     info!("DShot600 initialized on PIN_11");
 

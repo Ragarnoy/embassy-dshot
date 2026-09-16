@@ -27,6 +27,38 @@ const fn bidir_pio_clock_divider(speed: DshotSpeed, sys_clock_hz: u32) -> FixedU
     FixedU32::<U8>::from_bits(((sys_clock << 8) / target) as u32)
 }
 
+/// Worst-case duration of one bidirectional `DShot` TX+RX cycle, in microseconds.
+///
+/// A frame is 16 bits at the nominal baud rate; the ESC replies with 21 GCR bits
+/// at 5/4 of that rate, after a turnaround gap the spec puts at ~30us. Rounded up.
+#[allow(clippy::cast_possible_truncation)]
+const fn bidir_cycle_us(speed: DshotSpeed) -> u64 {
+    let baud = speed.baud_rate() as u64;
+    let tx_us = (16u64 * 1_000_000).div_ceil(baud);
+    let rx_us = (21u64 * 4 * 1_000_000).div_ceil(baud * 5);
+    tx_us + rx_us + TURNAROUND_US
+}
+
+/// Turnaround gap between the end of a frame and the start of the ESC reply.
+const TURNAROUND_US: u64 = 30;
+
+/// How many full cycles to wait for TX FIFO space before declaring the state
+/// machine wedged.
+///
+/// Note this is *not* a FIFO-depth argument. The FIFO is 4 deep in
+/// [`FifoJoin::Duplex`], but this driver cannot use that depth: every push
+/// first calls [`BidirDshotPio::sync_pc`], which resets the state machine
+/// unless it is parked at the `pull block` idle instruction — and it is only
+/// parked there when the FIFO is empty. Queueing a second frame while the
+/// first is still on the wire therefore aborts the first mid-transmission.
+/// The driver is strictly one frame at a time, and callers must pace
+/// themselves at or below one frame per [`bidir_cycle_us`].
+///
+/// So in correct use `wait_push` returns immediately and this bound is a pure
+/// wedge detector. A few cycles of slack keeps it clear of scheduler jitter
+/// while staying ~20x below the 10ms it replaced.
+const TX_WEDGE_CYCLES: u64 = 4;
+
 /// Bidirectional `DShot` program loaded into PIO instruction memory.
 ///
 /// Create once per PIO block and share between up to 4 [`BidirDshotPio`]
@@ -126,6 +158,9 @@ pub struct BidirDshotPio<'a, PIO: Instance, const SM: usize> {
     sm: StateMachine<'a, PIO, SM>,
     _pin: Pin<'a, PIO>,
     origin: u8,
+    /// Derived from `speed`: how long to wait for TX FIFO space before
+    /// reporting the state machine wedged.
+    tx_timeout: Duration,
 }
 
 impl<'a, PIO: Instance, const SM: usize> BidirDshotPio<'a, PIO, SM> {
@@ -183,6 +218,7 @@ impl<'a, PIO: Instance, const SM: usize> BidirDshotPio<'a, PIO, SM> {
             sm,
             _pin: pin,
             origin,
+            tx_timeout: Duration::from_micros(bidir_cycle_us(speed) * TX_WEDGE_CYCLES),
         }
     }
 
@@ -202,21 +238,43 @@ impl<'a, PIO: Instance, const SM: usize> BidirDshotPio<'a, PIO, SM> {
         }
     }
 
-    /// Send a frame, read raw RX value, and decode telemetry
-    async fn send_and_receive_raw(&mut self, frame_raw: u16) -> Result<u32, DshotError> {
-        // Clear stale RX data
+    /// Push a frame, bounded by [`Self::tx_timeout`].
+    ///
+    /// The TX FIFO is 4 deep, so this only ever blocks when the caller is
+    /// running ahead of the wire; timing out means the state machine stopped
+    /// consuming frames, not that the caller was merely early.
+    async fn push_frame_async(&mut self, frame_raw: u16) -> Result<(), DshotError> {
         while self.sm.rx().try_pull().is_some() {}
         self.sync_pc();
-
         let tx_data = u32::from(!frame_raw); // bidir DShot sends inverted
-
-        if with_timeout(Duration::from_millis(10), self.sm.tx().wait_push(tx_data))
+        with_timeout(self.tx_timeout, self.sm.tx().wait_push(tx_data))
             .await
-            .is_err()
-        {
-            return Err(DshotError::TelemetryTimeout);
-        }
+            .map_err(|_| DshotError::TxBusy)
+    }
 
+    /// Push a frame without blocking, reporting a full TX FIFO rather than
+    /// letting the hardware discard the write.
+    fn push_frame(&mut self, frame_raw: u16) -> Result<(), DshotError> {
+        while self.sm.rx().try_pull().is_some() {}
+        self.sync_pc();
+        let tx_data = u32::from(!frame_raw); // bidir DShot sends inverted
+        if self.sm.tx().try_push(tx_data) {
+            Ok(())
+        } else {
+            Err(DshotError::TxBusy)
+        }
+    }
+
+    /// Send a frame, read raw RX value, and decode telemetry
+    async fn send_and_receive_raw(&mut self, frame_raw: u16) -> Result<u32, DshotError> {
+        // Clears stale RX, resyncs the PC, and bounds the push.
+        self.push_frame_async(frame_raw).await?;
+
+        // Deliberately a flat 500us rather than a multiple of bidir_cycle_us:
+        // it must cover TX + turnaround + reply, which is 249us at the slowest
+        // supported speed, and this is the one bound validated against real
+        // ESCs. Deriving it would tighten DShot600 from 500us to 340us with no
+        // hardware to confirm that is safe.
         let rx_data = with_timeout(Duration::from_micros(500), self.sm.rx().wait_pull())
             .await
             .map_err(|_| DshotError::TelemetryTimeout)?;
@@ -287,71 +345,102 @@ impl<'a, PIO: Instance, const SM: usize> BidirDshotPio<'a, PIO, SM> {
         self.send_and_read_telemetry(frame.inner()).await
     }
 
-    pub fn send_command(&mut self, cmd: Command) {
-        while self.sm.rx().try_pull().is_some() {}
-        self.sync_pc();
+    /// Queue a `DShot` command without waiting.
+    ///
+    /// # Errors
+    ///
+    /// Returns `DshotError::TxBusy` if the TX FIFO is full, meaning the frame
+    /// was not queued.
+    pub fn send_command(&mut self, cmd: Command) -> Result<(), DshotError> {
         let frame = Frame::<BidirectionalDshot>::command(cmd, false);
-        self.sm.tx().push(u32::from(!frame.inner()));
+        self.push_frame(frame.inner())
     }
 
     /// Send a `DShot` command repeatedly (6x for settings, 10x for beep).
     /// 300us delay between sends to let the PIO TX+RX cycle complete.
-    pub async fn send_command_repeated_async(&mut self, cmd: Command, count: u8) {
+    ///
+    /// # Errors
+    ///
+    /// Returns `DshotError::TxBusy` on the first frame the state machine fails
+    /// to accept; earlier frames in the sequence have already been sent.
+    pub async fn send_command_repeated_async(
+        &mut self,
+        cmd: Command,
+        count: u8,
+    ) -> Result<(), DshotError> {
         for _ in 0..count {
-            self.send_command_async(cmd).await;
+            self.send_command_async(cmd).await?;
             Timer::after(Duration::from_micros(300)).await;
         }
-    }
-
-    pub async fn send_command_async(&mut self, cmd: Command) {
-        while self.sm.rx().try_pull().is_some() {}
-        self.sync_pc();
-        let frame = Frame::<BidirectionalDshot>::command(cmd, false);
-        self.sm.tx().wait_push(u32::from(!frame.inner())).await;
-    }
-
-    /// # Panics
-    ///
-    /// Panics if the idle throttle frame cannot be constructed (should never happen).
-    pub fn throttle_idle(&mut self) {
-        while self.sm.rx().try_pull().is_some() {}
-        self.sync_pc();
-        let frame = Frame::<BidirectionalDshot>::new(THROTTLE_IDLE, false)
-            .expect("Idle throttle should always be valid");
-        self.sm.tx().push(u32::from(!frame.inner()));
-    }
-
-    /// # Panics
-    ///
-    /// Panics if the idle throttle frame cannot be constructed (should never happen).
-    pub async fn throttle_idle_async(&mut self) {
-        while self.sm.rx().try_pull().is_some() {}
-        self.sync_pc();
-        let frame = Frame::<BidirectionalDshot>::new(THROTTLE_IDLE, false)
-            .expect("Idle throttle should always be valid");
-        self.sm.tx().wait_push(u32::from(!frame.inner())).await;
-    }
-
-    /// Arm ESC by sending `MotorStop` at ~1kHz for the given duration.
-    pub async fn arm_async(&mut self, duration: Duration) {
-        #[allow(clippy::cast_possible_truncation)]
-        let iterations = duration.as_millis() as u32;
-        for _ in 0..iterations {
-            self.send_command_async(Command::MotorStop).await;
-            Timer::after(Duration::from_millis(1)).await;
-        }
+        Ok(())
     }
 
     /// # Errors
     ///
-    /// Returns `DshotError::InvalidThrottle` if throttle is out of range.
-    pub async fn throttle_async(&mut self, throttle: u16) -> Result<(), DshotError> {
-        while self.sm.rx().try_pull().is_some() {}
-        self.sync_pc();
-        let frame = Frame::<BidirectionalDshot>::new(throttle.min(1999), false)
-            .ok_or(DshotError::InvalidThrottle)?;
-        self.sm.tx().wait_push(u32::from(!frame.inner())).await;
+    /// Returns `DshotError::TxBusy` if the state machine does not accept the
+    /// frame within one TX FIFO drain.
+    pub async fn send_command_async(&mut self, cmd: Command) -> Result<(), DshotError> {
+        let frame = Frame::<BidirectionalDshot>::command(cmd, false);
+        self.push_frame_async(frame.inner()).await
+    }
+
+    /// # Errors
+    ///
+    /// Returns `DshotError::TxBusy` if the TX FIFO is full, meaning the frame
+    /// was not queued.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the idle throttle frame cannot be constructed (should never happen).
+    pub fn throttle_idle(&mut self) -> Result<(), DshotError> {
+        let frame = Frame::<BidirectionalDshot>::new(THROTTLE_IDLE, false)
+            .expect("Idle throttle should always be valid");
+        self.push_frame(frame.inner())
+    }
+
+    /// # Errors
+    ///
+    /// Returns `DshotError::TxBusy` if the state machine does not accept the
+    /// frame within one TX FIFO drain.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the idle throttle frame cannot be constructed (should never happen).
+    pub async fn throttle_idle_async(&mut self) -> Result<(), DshotError> {
+        let frame = Frame::<BidirectionalDshot>::new(THROTTLE_IDLE, false)
+            .expect("Idle throttle should always be valid");
+        self.push_frame_async(frame.inner()).await
+    }
+
+    /// Arm ESC by sending `MotorStop` at ~1kHz for the given duration.
+    ///
+    /// # Errors
+    ///
+    /// Returns `DshotError::TxBusy` if the state machine stops accepting frames
+    /// part way through the arming sequence, which leaves the ESC unarmed.
+    pub async fn arm_async(&mut self, duration: Duration) -> Result<(), DshotError> {
+        #[allow(clippy::cast_possible_truncation)]
+        let iterations = duration.as_millis() as u32;
+        for _ in 0..iterations {
+            self.send_command_async(Command::MotorStop).await?;
+            Timer::after(Duration::from_millis(1)).await;
+        }
         Ok(())
+    }
+
+    /// # Errors
+    ///
+    /// Returns `DshotError::InvalidThrottle` if throttle is out of range, or
+    /// `DshotError::TxBusy` if the state machine does not accept the frame
+    /// within one TX FIFO drain.
+    pub async fn throttle_async(&mut self, throttle: u16) -> Result<(), DshotError> {
+        // Not clamped: a caller that computes 60000 from a bad cast means a
+        // fault, not full throttle, and `throttle_with_telemetry` already
+        // rejects the same input. Clamping here contradicted the documented
+        // `InvalidThrottle` and silently picked the most dangerous value.
+        let frame =
+            Frame::<BidirectionalDshot>::new(throttle, false).ok_or(DshotError::InvalidThrottle)?;
+        self.push_frame_async(frame.inner()).await
     }
 
     /// Send throttle and read an EDT response.
@@ -381,8 +470,42 @@ impl<'a, PIO: Instance, const SM: usize> BidirDshotPio<'a, PIO, SM> {
 
 #[cfg(test)]
 mod tests {
-    use super::bidir_pio_clock_divider;
+    use super::{bidir_cycle_us, bidir_pio_clock_divider, TX_WEDGE_CYCLES};
     use crate::DshotSpeed;
+
+    /// The cycle bound must cover a real frame: 16 bits out at the nominal
+    /// rate, 21 GCR bits back at 5/4 of it, plus the turnaround gap.
+    #[test]
+    fn cycle_bound_covers_a_full_frame() {
+        // DShot300: 53.3us out + 56us back + 30us gap.
+        assert_eq!(bidir_cycle_us(DshotSpeed::DShot300), 54 + 56 + 30);
+        // DShot600 halves the wire time.
+        assert_eq!(bidir_cycle_us(DshotSpeed::DShot600), 27 + 28 + 30);
+        // DShot150 doubles it.
+        assert_eq!(bidir_cycle_us(DshotSpeed::DShot150), 107 + 112 + 30);
+    }
+
+    /// Slower speeds must get longer bounds, or the timeout fires on traffic
+    /// that was always going to be slow.
+    #[test]
+    fn cycle_bound_grows_as_speed_drops() {
+        assert!(bidir_cycle_us(DshotSpeed::DShot150) > bidir_cycle_us(DshotSpeed::DShot300));
+        assert!(bidir_cycle_us(DshotSpeed::DShot300) > bidir_cycle_us(DshotSpeed::DShot600));
+    }
+
+    /// The old hardcoded bound was 10ms. Every supported speed must now come in
+    /// far under that, otherwise the fix for #7 changed nothing in practice.
+    #[test]
+    fn tx_timeout_is_well_under_the_old_10ms() {
+        for speed in [
+            DshotSpeed::DShot150,
+            DshotSpeed::DShot300,
+            DshotSpeed::DShot600,
+        ] {
+            let timeout_us = bidir_cycle_us(speed) * TX_WEDGE_CYCLES;
+            assert!(timeout_us < 10_000 / 5, "{speed:?} -> {timeout_us}us");
+        }
+    }
 
     /// 40 PIO cycles/bit: DShot600 needs a 24MHz PIO clock, so at 125MHz the
     /// divider is 125/24 = 5.2083 -> 1333 in 24.8 fixed point.

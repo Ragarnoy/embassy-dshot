@@ -5,6 +5,77 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-09-17
+
+### Changed
+
+- **Breaking:** `BidirDshotPio` no longer owns a whole PIO block. The PIO program is
+  now loaded once per block via `BidirDshotProgram::new(&mut common)` and shared by up
+  to four `BidirDshotPio` drivers, each taking its own state machine and pin. The
+  program is 28 instructions against a 32-instruction block, so one copy per motor
+  failed at the second motor.
+
+  ```rust,ignore
+  // 0.4
+  let mut dshot = BidirDshotPio::new(p.PIO0, Irqs, p.PIN_11, DshotSpeed::DShot300);
+
+  // 0.5
+  let Pio { mut common, sm0, .. } = Pio::new(p.PIO0, Irqs);
+  let prog = BidirDshotProgram::new(&mut common);
+  let mut dshot = BidirDshotPio::new(sm0, &mut common, p.PIN_11, &prog, DshotSpeed::DShot300);
+  ```
+
+  The type gained a state-machine index parameter, `BidirDshotPio<'a, PIO, const SM: usize>`,
+  so drivers for different state machines are different types and cannot share an array.
+
+- **Breaking:** every bidirectional send path is now fallible, returning
+  `Result<(), DshotError>` instead of `()` — `send_command`, `send_command_async`,
+  `send_command_repeated_async`, `throttle_idle`, `throttle_idle_async` and
+  `arm_async`. Callers that ignored the result need `unwrap!`/`?`/`let _ =`. (#7)
+- **Breaking:** a TX push that times out now reports the new `DshotError::TxBusy`
+  rather than `DshotError::TelemetryTimeout`, which conflated "the ESC did not
+  answer" with "our own state machine stopped consuming frames"
+
+### Added
+
+- `BidirDshotProgram`, the shared per-PIO-block program handle
+- `DshotError::TxBusy` — the state machine is not draining the TX FIFO, so the
+  frame was not sent
+- `quad_engine` example — four bidirectional ESCs on one PIO block, with their
+  telemetry reads overlapped via `join4` rather than awaited in turn
+
+### Fixed
+
+- `throttle_async` clamped out-of-range throttle to 1999 while documenting
+  `DshotError::InvalidThrottle`, so the error was unreachable and a bad value —
+  say 60000 from a wrapped cast — became *full throttle* with `Ok(())`. Both the
+  bidirectional and unidirectional versions now reject it, matching
+  `throttle_with_telemetry`, which never clamped. `throttle_clamp` still clamps:
+  that is what it is named for.
+- The TX push in `send_and_receive_raw` used a hardcoded 10ms timeout, roughly 200x
+  a DShot300 TX+RX cycle — long enough to stall ten iterations of a 1kHz control loop
+  before reporting a fault. The bound is now derived from the configured speed
+  (one full 4-deep TX FIFO drain, ~560us at DShot300). (#7)
+- The other send paths had no timeout at all and would wait forever on a wedged state
+  machine; they are now bounded the same way. (#7)
+- `send_command` and `throttle_idle` pushed straight into the TX FIFO register, which
+  the hardware discards when full — frames could go missing with no indication. Both
+  now check for space and report `TxBusy` instead.
+
+### Removed
+
+- The `rp2350` feature, deprecated in 0.4.0 as an alias for `rp235xa`. Pick the
+  feature matching your chip package: `rp235xa` or `rp235xb`.
+
+### Notes
+
+- CI now fmt-checks and clippy-checks `examples/`, the on-target test target included. It is a nested workspace, so the
+  root `cargo fmt --all` never reached it and clippy was never run on it at all;
+  both had drifted. Example builds always gated plain rustc warnings via `RUSTFLAGS`.
+- Multi-ESC bidirectional is built and CI-checked on every supported chip but has not
+  been validated against four ESCs on hardware; single-ESC bidirectional remains the
+  tested path
+
 ## [0.4.0] - 2026-09-14
 
 ### Added

@@ -75,8 +75,12 @@ async fn main(_spawner: Spawner) {
     // -------------------------------------------------------------------------
     info!("Arming ESCs (2s)...");
     for _ in 0..2000u32 {
-        engine1.send_command_async(Command::MotorStop).await;
-        engine2.send_command_async(Command::MotorStop).await;
+        if let Err(e) = engine1.send_command_async(Command::MotorStop).await {
+            defmt::warn!("engine1: MotorStop frame dropped: {}", e);
+        }
+        if let Err(e) = engine2.send_command_async(Command::MotorStop).await {
+            defmt::warn!("engine2: MotorStop frame dropped: {}", e);
+        }
         Timer::after(Duration::from_millis(1)).await;
     }
     info!("ESCs armed");
@@ -88,28 +92,40 @@ async fn main(_spawner: Spawner) {
     // -------------------------------------------------------------------------
     info!("Beep test: E1=Beep1");
     for _ in 0..10 {
-        engine1.send_command_async(Command::Beep1).await;
-        engine2.send_command_async(Command::MotorStop).await;
+        defmt::unwrap!(engine1.send_command_async(Command::Beep1).await);
+        if let Err(e) = engine2.send_command_async(Command::MotorStop).await {
+            defmt::warn!("engine2: MotorStop frame dropped: {}", e);
+        }
         Timer::after(Duration::from_millis(1)).await;
     }
     Timer::after(Duration::from_millis(320)).await;
     // Keep both ESCs alive
     for _ in 0..200 {
-        engine1.send_command_async(Command::MotorStop).await;
-        engine2.send_command_async(Command::MotorStop).await;
+        if let Err(e) = engine1.send_command_async(Command::MotorStop).await {
+            defmt::warn!("engine1: MotorStop frame dropped: {}", e);
+        }
+        if let Err(e) = engine2.send_command_async(Command::MotorStop).await {
+            defmt::warn!("engine2: MotorStop frame dropped: {}", e);
+        }
         Timer::after(Duration::from_millis(1)).await;
     }
 
     info!("Beep test: E2=Beep2");
     for _ in 0..10 {
-        engine1.send_command_async(Command::MotorStop).await;
-        engine2.send_command_async(Command::Beep2).await;
+        if let Err(e) = engine1.send_command_async(Command::MotorStop).await {
+            defmt::warn!("engine1: MotorStop frame dropped: {}", e);
+        }
+        defmt::unwrap!(engine2.send_command_async(Command::Beep2).await);
         Timer::after(Duration::from_millis(1)).await;
     }
     Timer::after(Duration::from_millis(320)).await;
     for _ in 0..200 {
-        engine1.send_command_async(Command::MotorStop).await;
-        engine2.send_command_async(Command::MotorStop).await;
+        if let Err(e) = engine1.send_command_async(Command::MotorStop).await {
+            defmt::warn!("engine1: MotorStop frame dropped: {}", e);
+        }
+        if let Err(e) = engine2.send_command_async(Command::MotorStop).await {
+            defmt::warn!("engine2: MotorStop frame dropped: {}", e);
+        }
         Timer::after(Duration::from_millis(1)).await;
     }
 
@@ -153,7 +169,7 @@ async fn main(_spawner: Spawner) {
                 // Consider RPMs "matched" if within 10% of average
                 let avg = (rpm1 + rpm2) / 2;
                 let threshold = avg / 10; // 10%
-                let diff = if rpm1 > rpm2 { rpm1 - rpm2 } else { rpm2 - rpm1 };
+                let diff = rpm1.abs_diff(rpm2);
 
                 if diff <= threshold {
                     matched += 1;
@@ -166,8 +182,12 @@ async fn main(_spawner: Spawner) {
                     let status = if diff <= threshold { "MATCH" } else { "DRIFT" };
                     info!(
                         "  [{}] {} E1={}rpm E2={}rpm diff={}rpm ({}%)",
-                        i, status, rpm1, rpm2, diff,
-                        if avg > 0 { diff * 100 / avg } else { 0 }
+                        i,
+                        status,
+                        rpm1,
+                        rpm2,
+                        diff,
+                        (diff * 100).checked_div(avg).unwrap_or(0)
                     );
                 }
             }
@@ -183,10 +203,13 @@ async fn main(_spawner: Spawner) {
         "Matched (<10%%): {}/{} ({}%)",
         matched,
         total_good,
-        if total_good > 0 { matched * 100 / total_good } else { 0 }
+        (matched * 100).checked_div(total_good).unwrap_or(0)
     );
     info!("Drifted (>10%%): {}", mismatched);
-    info!("E1 only: {}, E2 only: {}, Both fail: {}", e1_only, e2_only, both_fail);
+    info!(
+        "E1 only: {}, E2 only: {}, Both fail: {}",
+        e1_only, e2_only, both_fail
+    );
 
     // -------------------------------------------------------------------------
     // Phase 4: Differential throttle
@@ -219,8 +242,12 @@ async fn main(_spawner: Spawner) {
 
     info!("Stopping motors...");
     for _ in 0..2000u32 {
-        engine1.send_command_async(Command::MotorStop).await;
-        engine2.send_command_async(Command::MotorStop).await;
+        if let Err(e) = engine1.send_command_async(Command::MotorStop).await {
+            defmt::warn!("engine1: MotorStop frame dropped: {}", e);
+        }
+        if let Err(e) = engine2.send_command_async(Command::MotorStop).await {
+            defmt::warn!("engine2: MotorStop frame dropped: {}", e);
+        }
         Timer::after(Duration::from_micros(500)).await;
     }
 
