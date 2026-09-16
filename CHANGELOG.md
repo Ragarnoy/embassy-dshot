@@ -46,6 +46,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `throttle_async` clamped out-of-range throttle to 1999 while documenting
+  `DshotError::InvalidThrottle`, so the error was unreachable and a bad value —
+  say 60000 from a wrapped cast — became *full throttle* with `Ok(())`. Both the
+  bidirectional and unidirectional versions now reject it, matching
+  `throttle_with_telemetry`, which never clamped. `throttle_clamp` still clamps:
+  that is what it is named for.
 - The TX push in `send_and_receive_raw` used a hardcoded 10ms timeout, roughly 200x
   a DShot300 TX+RX cycle — long enough to stall ten iterations of a 1kHz control loop
   before reporting a fault. The bound is now derived from the configured speed
@@ -63,7 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Notes
 
-- CI now fmt-checks and clippy-checks `examples/`. It is a nested workspace, so the
+- CI now fmt-checks and clippy-checks `examples/`, the on-target test target included. It is a nested workspace, so the
   root `cargo fmt --all` never reached it and clippy was never run on it at all;
   both had drifted. Example builds always gated plain rustc warnings via `RUSTFLAGS`.
 - Multi-ESC bidirectional is built and CI-checked on every supported chip but has not

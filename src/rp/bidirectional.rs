@@ -43,10 +43,21 @@ const fn bidir_cycle_us(speed: DshotSpeed) -> u64 {
 const TURNAROUND_US: u64 = 30;
 
 /// How many full cycles to wait for TX FIFO space before declaring the state
-/// machine wedged. The FIFO is 4 deep in [`FifoJoin::Duplex`], so a caller
-/// running ahead of the wire can legitimately queue four frames; anything
-/// beyond that means the SM has stopped consuming.
-const TX_FIFO_DEPTH: u64 = 4;
+/// machine wedged.
+///
+/// Note this is *not* a FIFO-depth argument. The FIFO is 4 deep in
+/// [`FifoJoin::Duplex`], but this driver cannot use that depth: every push
+/// first calls [`BidirDshotPio::sync_pc`], which resets the state machine
+/// unless it is parked at the `pull block` idle instruction — and it is only
+/// parked there when the FIFO is empty. Queueing a second frame while the
+/// first is still on the wire therefore aborts the first mid-transmission.
+/// The driver is strictly one frame at a time, and callers must pace
+/// themselves at or below one frame per [`bidir_cycle_us`].
+///
+/// So in correct use `wait_push` returns immediately and this bound is a pure
+/// wedge detector. A few cycles of slack keeps it clear of scheduler jitter
+/// while staying ~20x below the 10ms it replaced.
+const TX_WEDGE_CYCLES: u64 = 4;
 
 /// Bidirectional `DShot` program loaded into PIO instruction memory.
 ///
@@ -207,7 +218,7 @@ impl<'a, PIO: Instance, const SM: usize> BidirDshotPio<'a, PIO, SM> {
             sm,
             _pin: pin,
             origin,
-            tx_timeout: Duration::from_micros(bidir_cycle_us(speed) * TX_FIFO_DEPTH),
+            tx_timeout: Duration::from_micros(bidir_cycle_us(speed) * TX_WEDGE_CYCLES),
         }
     }
 
@@ -259,6 +270,11 @@ impl<'a, PIO: Instance, const SM: usize> BidirDshotPio<'a, PIO, SM> {
         // Clears stale RX, resyncs the PC, and bounds the push.
         self.push_frame_async(frame_raw).await?;
 
+        // Deliberately a flat 500us rather than a multiple of bidir_cycle_us:
+        // it must cover TX + turnaround + reply, which is 249us at the slowest
+        // supported speed, and this is the one bound validated against real
+        // ESCs. Deriving it would tighten DShot600 from 500us to 340us with no
+        // hardware to confirm that is safe.
         let rx_data = with_timeout(Duration::from_micros(500), self.sm.rx().wait_pull())
             .await
             .map_err(|_| DshotError::TelemetryTimeout)?;
@@ -418,8 +434,12 @@ impl<'a, PIO: Instance, const SM: usize> BidirDshotPio<'a, PIO, SM> {
     /// `DshotError::TxBusy` if the state machine does not accept the frame
     /// within one TX FIFO drain.
     pub async fn throttle_async(&mut self, throttle: u16) -> Result<(), DshotError> {
-        let frame = Frame::<BidirectionalDshot>::new(throttle.min(1999), false)
-            .ok_or(DshotError::InvalidThrottle)?;
+        // Not clamped: a caller that computes 60000 from a bad cast means a
+        // fault, not full throttle, and `throttle_with_telemetry` already
+        // rejects the same input. Clamping here contradicted the documented
+        // `InvalidThrottle` and silently picked the most dangerous value.
+        let frame =
+            Frame::<BidirectionalDshot>::new(throttle, false).ok_or(DshotError::InvalidThrottle)?;
         self.push_frame_async(frame.inner()).await
     }
 
@@ -450,7 +470,7 @@ impl<'a, PIO: Instance, const SM: usize> BidirDshotPio<'a, PIO, SM> {
 
 #[cfg(test)]
 mod tests {
-    use super::{bidir_cycle_us, bidir_pio_clock_divider, TX_FIFO_DEPTH};
+    use super::{bidir_cycle_us, bidir_pio_clock_divider, TX_WEDGE_CYCLES};
     use crate::DshotSpeed;
 
     /// The cycle bound must cover a real frame: 16 bits out at the nominal
@@ -482,7 +502,7 @@ mod tests {
             DshotSpeed::DShot300,
             DshotSpeed::DShot600,
         ] {
-            let timeout_us = bidir_cycle_us(speed) * TX_FIFO_DEPTH;
+            let timeout_us = bidir_cycle_us(speed) * TX_WEDGE_CYCLES;
             assert!(timeout_us < 10_000 / 5, "{speed:?} -> {timeout_us}us");
         }
     }

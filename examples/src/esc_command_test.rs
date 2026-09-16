@@ -81,7 +81,9 @@ async fn brief_spin(
     }
     // Stop
     for _ in 0..500 {
-        defmt::unwrap!(dshot.send_command_async(Command::MotorStop).await);
+        if let Err(e) = dshot.send_command_async(Command::MotorStop).await {
+            defmt::warn!("dshot: MotorStop frame dropped: {}", e);
+        }
         Timer::after(Duration::from_micros(500)).await;
     }
 }
@@ -124,7 +126,9 @@ async fn main(_spawner: Spawner) {
         Timer::after(Duration::from_millis(320)).await;
         // Keep ESC alive with motor stop
         for _ in 0..200 {
-            defmt::unwrap!(dshot.send_command_async(Command::MotorStop).await);
+            if let Err(e) = dshot.send_command_async(Command::MotorStop).await {
+                defmt::warn!("dshot: MotorStop frame dropped: {}", e);
+            }
             Timer::after(Duration::from_micros(1000)).await;
         }
     }
@@ -225,7 +229,9 @@ async fn main(_spawner: Spawner) {
         Timer::after(Duration::from_millis(500)).await;
         // Keep alive
         for _ in 0..100 {
-            defmt::unwrap!(dshot.send_command_async(Command::MotorStop).await);
+            if let Err(e) = dshot.send_command_async(Command::MotorStop).await {
+                defmt::warn!("dshot: MotorStop frame dropped: {}", e);
+            }
             Timer::after(Duration::from_micros(1000)).await;
         }
     }
@@ -238,7 +244,9 @@ async fn main(_spawner: Spawner) {
         );
         Timer::after(Duration::from_millis(500)).await;
         for _ in 0..100 {
-            defmt::unwrap!(dshot.send_command_async(Command::MotorStop).await);
+            if let Err(e) = dshot.send_command_async(Command::MotorStop).await {
+                defmt::warn!("dshot: MotorStop frame dropped: {}", e);
+            }
             Timer::after(Duration::from_micros(1000)).await;
         }
     }
@@ -313,7 +321,9 @@ async fn main(_spawner: Spawner) {
 
     // Stop motor
     for _ in 0..500 {
-        defmt::unwrap!(dshot.send_command_async(Command::MotorStop).await);
+        if let Err(e) = dshot.send_command_async(Command::MotorStop).await {
+            defmt::warn!("dshot: MotorStop frame dropped: {}", e);
+        }
         Timer::after(Duration::from_micros(500)).await;
     }
 
@@ -450,7 +460,9 @@ async fn main(_spawner: Spawner) {
 
     // Stop motor
     for _ in 0..500 {
-        defmt::unwrap!(dshot.send_command_async(Command::MotorStop).await);
+        if let Err(e) = dshot.send_command_async(Command::MotorStop).await {
+            defmt::warn!("dshot: MotorStop frame dropped: {}", e);
+        }
         Timer::after(Duration::from_micros(500)).await;
     }
 
@@ -478,7 +490,9 @@ async fn main(_spawner: Spawner) {
     );
     Timer::after(Duration::from_millis(500)).await;
     for _ in 0..200 {
-        defmt::unwrap!(dshot.send_command_async(Command::MotorStop).await);
+        if let Err(e) = dshot.send_command_async(Command::MotorStop).await {
+            defmt::warn!("dshot: MotorStop frame dropped: {}", e);
+        }
         Timer::after(Duration::from_micros(1000)).await;
     }
 
@@ -490,7 +504,9 @@ async fn main(_spawner: Spawner) {
     );
     Timer::after(Duration::from_millis(500)).await;
     for _ in 0..200 {
-        defmt::unwrap!(dshot.send_command_async(Command::MotorStop).await);
+        if let Err(e) = dshot.send_command_async(Command::MotorStop).await {
+            defmt::warn!("dshot: MotorStop frame dropped: {}", e);
+        }
         Timer::after(Duration::from_micros(1000)).await;
     }
 
@@ -562,7 +578,9 @@ async fn main(_spawner: Spawner) {
 
     // Stop
     for _ in 0..500 {
-        defmt::unwrap!(dshot.send_command_async(Command::MotorStop).await);
+        if let Err(e) = dshot.send_command_async(Command::MotorStop).await {
+            defmt::warn!("dshot: MotorStop frame dropped: {}", e);
+        }
         Timer::after(Duration::from_micros(500)).await;
     }
 
@@ -606,7 +624,9 @@ async fn main(_spawner: Spawner) {
     // =========================================================================
     info!("=== All phases complete ===");
     for _ in 0..2000 {
-        defmt::unwrap!(dshot.send_command_async(Command::MotorStop).await);
+        if let Err(e) = dshot.send_command_async(Command::MotorStop).await {
+            defmt::warn!("dshot: MotorStop frame dropped: {}", e);
+        }
         Timer::after(Duration::from_micros(500)).await;
     }
 

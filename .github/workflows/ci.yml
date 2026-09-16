@@ -126,8 +126,12 @@ jobs:
             --target ${{ matrix.target }}
       # The build above only gates rustc warnings, via RUSTFLAGS. Clippy's own
       # lints went unchecked here until 0.5.0, so the examples had drifted.
+      # `--bins --test on_target_tests`, not `--all-targets`: the latter builds a
+      # libtest harness per bin and these targets have no `test` crate. The
+      # on-target test sets `harness = false`, so it lints on its own.
       - name: cargo clippy
         run: |
-          cargo clippy --manifest-path examples/Cargo.toml --bins \
+          cargo clippy --manifest-path examples/Cargo.toml \
+            --bins --test on_target_tests \
             --no-default-features --features ${{ matrix.chip }} \
             --target ${{ matrix.target }}

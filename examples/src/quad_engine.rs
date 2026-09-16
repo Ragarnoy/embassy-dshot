@@ -65,10 +65,18 @@ async fn main(_spawner: Spawner) {
     // -------------------------------------------------------------------------
     info!("Arming ESCs (2s)...");
     for _ in 0..2000u32 {
-        unwrap!(m1.send_command_async(Command::MotorStop).await);
-        unwrap!(m2.send_command_async(Command::MotorStop).await);
-        unwrap!(m3.send_command_async(Command::MotorStop).await);
-        unwrap!(m4.send_command_async(Command::MotorStop).await);
+        if let Err(e) = m1.send_command_async(Command::MotorStop).await {
+            defmt::warn!("m1: MotorStop frame dropped: {}", e);
+        }
+        if let Err(e) = m2.send_command_async(Command::MotorStop).await {
+            defmt::warn!("m2: MotorStop frame dropped: {}", e);
+        }
+        if let Err(e) = m3.send_command_async(Command::MotorStop).await {
+            defmt::warn!("m3: MotorStop frame dropped: {}", e);
+        }
+        if let Err(e) = m4.send_command_async(Command::MotorStop).await {
+            defmt::warn!("m4: MotorStop frame dropped: {}", e);
+        }
         Timer::after(Duration::from_millis(1)).await;
     }
     info!("ESCs armed");
@@ -82,17 +90,31 @@ async fn main(_spawner: Spawner) {
     info!("Beep test (M1 only)...");
     for _ in 0..10 {
         unwrap!(m1.send_command_async(Command::Beep1).await);
-        unwrap!(m2.send_command_async(Command::MotorStop).await);
-        unwrap!(m3.send_command_async(Command::MotorStop).await);
-        unwrap!(m4.send_command_async(Command::MotorStop).await);
+        if let Err(e) = m2.send_command_async(Command::MotorStop).await {
+            defmt::warn!("m2: MotorStop frame dropped: {}", e);
+        }
+        if let Err(e) = m3.send_command_async(Command::MotorStop).await {
+            defmt::warn!("m3: MotorStop frame dropped: {}", e);
+        }
+        if let Err(e) = m4.send_command_async(Command::MotorStop).await {
+            defmt::warn!("m4: MotorStop frame dropped: {}", e);
+        }
         Timer::after(Duration::from_millis(1)).await;
     }
     Timer::after(Duration::from_millis(320)).await;
     for _ in 0..200 {
-        unwrap!(m1.send_command_async(Command::MotorStop).await);
-        unwrap!(m2.send_command_async(Command::MotorStop).await);
-        unwrap!(m3.send_command_async(Command::MotorStop).await);
-        unwrap!(m4.send_command_async(Command::MotorStop).await);
+        if let Err(e) = m1.send_command_async(Command::MotorStop).await {
+            defmt::warn!("m1: MotorStop frame dropped: {}", e);
+        }
+        if let Err(e) = m2.send_command_async(Command::MotorStop).await {
+            defmt::warn!("m2: MotorStop frame dropped: {}", e);
+        }
+        if let Err(e) = m3.send_command_async(Command::MotorStop).await {
+            defmt::warn!("m3: MotorStop frame dropped: {}", e);
+        }
+        if let Err(e) = m4.send_command_async(Command::MotorStop).await {
+            defmt::warn!("m4: MotorStop frame dropped: {}", e);
+        }
         Timer::after(Duration::from_millis(1)).await;
     }
 
@@ -168,10 +190,18 @@ async fn main(_spawner: Spawner) {
     // -------------------------------------------------------------------------
     info!("Stopping motors...");
     for _ in 0..2000u32 {
-        unwrap!(m1.send_command_async(Command::MotorStop).await);
-        unwrap!(m2.send_command_async(Command::MotorStop).await);
-        unwrap!(m3.send_command_async(Command::MotorStop).await);
-        unwrap!(m4.send_command_async(Command::MotorStop).await);
+        if let Err(e) = m1.send_command_async(Command::MotorStop).await {
+            defmt::warn!("m1: MotorStop frame dropped: {}", e);
+        }
+        if let Err(e) = m2.send_command_async(Command::MotorStop).await {
+            defmt::warn!("m2: MotorStop frame dropped: {}", e);
+        }
+        if let Err(e) = m3.send_command_async(Command::MotorStop).await {
+            defmt::warn!("m3: MotorStop frame dropped: {}", e);
+        }
+        if let Err(e) = m4.send_command_async(Command::MotorStop).await {
+            defmt::warn!("m4: MotorStop frame dropped: {}", e);
+        }
         Timer::after(Duration::from_micros(500)).await;
     }
 

@@ -81,7 +81,9 @@ async fn main(_spawner: Spawner) {
     }
     Timer::after(Duration::from_millis(320)).await;
     for _ in 0..200 {
-        defmt::unwrap!(dshot.send_command_async(Command::MotorStop).await);
+        if let Err(e) = dshot.send_command_async(Command::MotorStop).await {
+            defmt::warn!("dshot: MotorStop frame dropped: {}", e);
+        }
         Timer::after(Duration::from_micros(1000)).await;
     }
     info!(
@@ -190,7 +192,9 @@ async fn main(_spawner: Spawner) {
     // -------------------------------------------------------------------------
     info!("Stopping motor...");
     for _ in 0..2000u32 {
-        defmt::unwrap!(dshot.send_command_async(Command::MotorStop).await);
+        if let Err(e) = dshot.send_command_async(Command::MotorStop).await {
+            defmt::warn!("dshot: MotorStop frame dropped: {}", e);
+        }
         Timer::after(Duration::from_micros(500)).await;
     }
 

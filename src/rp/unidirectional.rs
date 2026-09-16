@@ -178,7 +178,9 @@ macro_rules! impl_dshot_traits {
 
             async fn throttle_async(&mut self, throttle: [u16; $n]) -> Result<(), DshotError> {
                 $(
-                    let frame = Frame::<NormalDshot>::new(throttle[$idx].min(1999), false)
+                    // Not clamped, unlike `throttle_clamp`: out of range here is a
+                    // caller bug, and clamping would turn it into full throttle.
+                    let frame = Frame::<NormalDshot>::new(throttle[$idx], false)
                         .ok_or(DshotError::InvalidThrottle)?;
                     self.pio_instance.$sm.tx().wait_push(u32::from(frame.inner())).await;
                 )+

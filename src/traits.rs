@@ -11,11 +11,17 @@ pub trait DshotPioTrait<const N: usize> {
     /// Set motor rotation direction (requires 6 transmissions to take effect).
     fn reverse(&mut self, reverse: [bool; N]);
 
-    /// Set throttle values (0-1999), clamped to `DShot` range (48-2047).
+    /// Set throttle values, clamping anything above 1999 down to 1999.
+    ///
+    /// Clamping is the point of this method — use `throttle_async` if an
+    /// out-of-range value should be rejected instead of silently becoming full
+    /// throttle.
     ///
     /// # Errors
     ///
-    /// Returns `DshotError::InvalidThrottle` if a throttle value is invalid.
+    /// Returns `DshotError::InvalidThrottle` if a frame cannot be built. The
+    /// clamp means this cannot currently happen; the signature is kept so the
+    /// two throttle methods agree.
     fn throttle_clamp(&mut self, throttle: [u16; N]) -> Result<(), DshotError>;
 
     /// Set all motors to idle throttle (`DShot` value 48).
@@ -37,6 +43,12 @@ pub trait DshotPioTrait<const N: usize> {
 pub trait DshotPioAsync<const N: usize> {
     async fn command_async(&mut self, command: [u16; N]) -> Result<(), DshotError>;
     async fn reverse_async(&mut self, reverse: [bool; N]);
+    /// Set throttle values (0-1999), rejecting anything out of range.
+    ///
+    /// # Errors
+    ///
+    /// Returns `DshotError::InvalidThrottle` if a throttle value is 2000 or
+    /// above. Unlike `throttle_clamp`, no clamping is applied.
     async fn throttle_async(&mut self, throttle: [u16; N]) -> Result<(), DshotError>;
     async fn throttle_idle_async(&mut self);
     async fn send_command_async(&mut self, cmd: Command);
