@@ -10,6 +10,16 @@ repository = "https://github.com/Ragarnoy/embassy-dshot"
 keywords = ["embassy", "dshot", "esc", "rp2040", "rp235x"]
 categories = ["embedded", "no-std"]
 
+# Repo scaffolding that has no business in the published tarball. `examples/` is
+# already skipped as a nested workspace, but say so explicitly so it stays that
+# way. Anything not listed here still ships.
+exclude = [
+    ".github/",
+    ".gitignore",
+    "cliff.toml",
+    "examples/",
+]
+
 [package.metadata.docs.rs]
 features = ["rp2040"]
 targets = ["thumbv6m-none-eabi"]
