@@ -136,10 +136,16 @@ PIO block; one instance drives one ESC.
 
 - `throttle_with_telemetry(&mut self, throttle: u16) -> Result<Telemetry, DshotError>`
 - `command_with_telemetry(&mut self, cmd: Command) -> Result<Telemetry, DshotError>`
-- `send_command_async(&mut self, cmd: Command)`
-- `throttle_idle_async(&mut self)`
-- `arm_async(&mut self, duration: Duration)` — send MotorStop at ~1kHz for the given duration
+- `throttle_async(&mut self, throttle: u16) -> Result<(), DshotError>`
+- `send_command_async(&mut self, cmd: Command) -> Result<(), DshotError>`
+- `throttle_idle_async(&mut self) -> Result<(), DshotError>`
+- `arm_async(&mut self, duration: Duration) -> Result<(), DshotError>` — send MotorStop at ~1kHz for the given duration
 - `read_extended_telemetry(&mut self, throttle: u16) -> Result<ExtendedTelemetry, DshotError>`
+
+Every send path is fallible: each one either waits a bounded time for TX FIFO
+space or reports `DshotError::TxBusy`, rather than blocking forever or letting
+the hardware silently discard the frame. The bound is derived from the
+configured `DshotSpeed` — one full TX FIFO drain, roughly 560us at DShot300.
 
 ### Extended DShot Telemetry (EDT)
 

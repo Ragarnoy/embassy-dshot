@@ -45,7 +45,7 @@ const SETTINGS_REPEAT: u8 = 6;
 /// Arm ESC by sending MotorStop for the given duration in milliseconds
 async fn arm_esc(dshot: &mut BidirDshotPio<'_, impl embassy_rp::pio::Instance, 0>, ms: u32) {
     info!("Arming ESC ({}ms)...", ms);
-    dshot.arm_async(Duration::from_millis(ms as u64)).await;
+    defmt::unwrap!(dshot.arm_async(Duration::from_millis(ms as u64)).await);
     info!("ESC armed");
 }
 
@@ -74,7 +74,7 @@ async fn brief_spin(dshot: &mut BidirDshotPio<'_, impl embassy_rp::pio::Instance
     }
     // Stop
     for _ in 0..500 {
-        dshot.send_command_async(Command::MotorStop).await;
+        defmt::unwrap!(dshot.send_command_async(Command::MotorStop).await);
         Timer::after(Duration::from_micros(500)).await;
     }
 }
@@ -112,14 +112,14 @@ async fn main(_spawner: Spawner) {
     for (cmd, name) in beeps {
         info!("Sending {}...", name);
         for _ in 0..10 {
-            dshot.send_command_async(cmd).await;
+            defmt::unwrap!(dshot.send_command_async(cmd).await);
             Timer::after(Duration::from_micros(1000)).await;
         }
         // Wait >260ms between beeps for ESC to process
         Timer::after(Duration::from_millis(320)).await;
         // Keep ESC alive with motor stop
         for _ in 0..200 {
-            dshot.send_command_async(Command::MotorStop).await;
+            defmt::unwrap!(dshot.send_command_async(Command::MotorStop).await);
             Timer::after(Duration::from_micros(1000)).await;
         }
     }
@@ -132,7 +132,7 @@ async fn main(_spawner: Spawner) {
     arm_esc(&mut dshot, 1000).await;
 
     info!("Setting SpinDirectionNormal (6x)...");
-    dshot.send_command_repeated_async(Command::SpinDirectionNormal, SETTINGS_REPEAT).await;
+    defmt::unwrap!(dshot.send_command_repeated_async(Command::SpinDirectionNormal, SETTINGS_REPEAT).await);
     Timer::after(Duration::from_millis(100)).await;
     info!("Spinning motor forward...");
     brief_spin(&mut dshot, TEST_THROTTLE, 1000).await;
@@ -140,7 +140,7 @@ async fn main(_spawner: Spawner) {
     arm_esc(&mut dshot, 1000).await;
 
     info!("Setting SpinDirectonReversed (6x)...");
-    dshot.send_command_repeated_async(Command::SpinDirectonReversed, SETTINGS_REPEAT).await;
+    defmt::unwrap!(dshot.send_command_repeated_async(Command::SpinDirectonReversed, SETTINGS_REPEAT).await);
     Timer::after(Duration::from_millis(100)).await;
     info!("Spinning motor reversed...");
     brief_spin(&mut dshot, TEST_THROTTLE, 1000).await;
@@ -148,7 +148,7 @@ async fn main(_spawner: Spawner) {
     // Restore normal direction
     arm_esc(&mut dshot, 500).await;
     info!("Restoring SpinDirectionNormal (6x)...");
-    dshot.send_command_repeated_async(Command::SpinDirectionNormal, SETTINGS_REPEAT).await;
+    defmt::unwrap!(dshot.send_command_repeated_async(Command::SpinDirectionNormal, SETTINGS_REPEAT).await);
     Timer::after(Duration::from_millis(100)).await;
 
     info!("Phase 2 complete — verify: motor spun both directions");
@@ -160,13 +160,13 @@ async fn main(_spawner: Spawner) {
     arm_esc(&mut dshot, 1000).await;
 
     info!("Enabling ThreeDModeOn (6x)...");
-    dshot.send_command_repeated_async(Command::ThreeDModeOn, SETTINGS_REPEAT).await;
+    defmt::unwrap!(dshot.send_command_repeated_async(Command::ThreeDModeOn, SETTINGS_REPEAT).await);
     Timer::after(Duration::from_millis(100)).await;
     info!("Brief low throttle test in 3D mode...");
     brief_spin(&mut dshot, 100, 500).await;
 
     info!("Disabling ThreeDModeOff (6x)...");
-    dshot.send_command_repeated_async(Command::ThreeDModeOff, SETTINGS_REPEAT).await;
+    defmt::unwrap!(dshot.send_command_repeated_async(Command::ThreeDModeOff, SETTINGS_REPEAT).await);
     Timer::after(Duration::from_millis(100)).await;
 
     info!("Phase 3 complete — verify: 3D mode toggled (if ESC supports it)");
@@ -192,20 +192,20 @@ async fn main(_spawner: Spawner) {
 
     for (cmd, name) in leds_on {
         info!("Sending {} (6x)...", name);
-        dshot.send_command_repeated_async(cmd, SETTINGS_REPEAT).await;
+        defmt::unwrap!(dshot.send_command_repeated_async(cmd, SETTINGS_REPEAT).await);
         Timer::after(Duration::from_millis(500)).await;
         // Keep alive
         for _ in 0..100 {
-            dshot.send_command_async(Command::MotorStop).await;
+            defmt::unwrap!(dshot.send_command_async(Command::MotorStop).await);
             Timer::after(Duration::from_micros(1000)).await;
         }
     }
     for (cmd, name) in leds_off {
         info!("Sending {} (6x)...", name);
-        dshot.send_command_repeated_async(cmd, SETTINGS_REPEAT).await;
+        defmt::unwrap!(dshot.send_command_repeated_async(cmd, SETTINGS_REPEAT).await);
         Timer::after(Duration::from_millis(500)).await;
         for _ in 0..100 {
-            dshot.send_command_async(Command::MotorStop).await;
+            defmt::unwrap!(dshot.send_command_async(Command::MotorStop).await);
             Timer::after(Duration::from_micros(1000)).await;
         }
     }
@@ -268,7 +268,7 @@ async fn main(_spawner: Spawner) {
 
     // Stop motor
     for _ in 0..500 {
-        dshot.send_command_async(Command::MotorStop).await;
+        defmt::unwrap!(dshot.send_command_async(Command::MotorStop).await);
         Timer::after(Duration::from_micros(500)).await;
     }
 
@@ -277,7 +277,7 @@ async fn main(_spawner: Spawner) {
     arm_esc(&mut dshot, 1000).await;
 
     info!("Enabling ExtendedTelemetryEnable (6x)...");
-    dshot.send_command_repeated_async(Command::ExtendedTelemetryEnable, SETTINGS_REPEAT).await;
+    defmt::unwrap!(dshot.send_command_repeated_async(Command::ExtendedTelemetryEnable, SETTINGS_REPEAT).await);
 
     // Check for version response
     info!("Checking for EDT version response...");
@@ -381,12 +381,12 @@ async fn main(_spawner: Spawner) {
 
     // Stop motor
     for _ in 0..500 {
-        dshot.send_command_async(Command::MotorStop).await;
+        defmt::unwrap!(dshot.send_command_async(Command::MotorStop).await);
         Timer::after(Duration::from_micros(500)).await;
     }
 
     info!("Disabling ExtendedTelemetryDisable (6x)...");
-    dshot.send_command_repeated_async(Command::ExtendedTelemetryDisable, SETTINGS_REPEAT).await;
+    defmt::unwrap!(dshot.send_command_repeated_async(Command::ExtendedTelemetryDisable, SETTINGS_REPEAT).await);
     Timer::after(Duration::from_millis(100)).await;
 
     info!("Phase 5 complete — verify: telemetry values logged and plausible");
@@ -398,18 +398,18 @@ async fn main(_spawner: Spawner) {
     arm_esc(&mut dshot, 1000).await;
 
     info!("Sending AudioStreamModeToggle (6x)...");
-    dshot.send_command_repeated_async(Command::AudioStreamModeToggle, SETTINGS_REPEAT).await;
+    defmt::unwrap!(dshot.send_command_repeated_async(Command::AudioStreamModeToggle, SETTINGS_REPEAT).await);
     Timer::after(Duration::from_millis(500)).await;
     for _ in 0..200 {
-        dshot.send_command_async(Command::MotorStop).await;
+        defmt::unwrap!(dshot.send_command_async(Command::MotorStop).await);
         Timer::after(Duration::from_micros(1000)).await;
     }
 
     info!("Sending SilentModeToggle (6x)...");
-    dshot.send_command_repeated_async(Command::SilentModeToggle, SETTINGS_REPEAT).await;
+    defmt::unwrap!(dshot.send_command_repeated_async(Command::SilentModeToggle, SETTINGS_REPEAT).await);
     Timer::after(Duration::from_millis(500)).await;
     for _ in 0..200 {
-        dshot.send_command_async(Command::MotorStop).await;
+        defmt::unwrap!(dshot.send_command_async(Command::MotorStop).await);
         Timer::after(Duration::from_micros(1000)).await;
     }
 
@@ -422,11 +422,11 @@ async fn main(_spawner: Spawner) {
     arm_esc(&mut dshot, 1000).await;
 
     info!("Enabling SignalLineTelemetryEnable (6x)...");
-    dshot.send_command_repeated_async(Command::SignalLineTelemetryEnable, SETTINGS_REPEAT).await;
+    defmt::unwrap!(dshot.send_command_repeated_async(Command::SignalLineTelemetryEnable, SETTINGS_REPEAT).await);
     Timer::after(Duration::from_millis(100)).await;
 
     info!("Setting SignalLineContinuousERPMTelemetry (6x)...");
-    dshot.send_command_repeated_async(Command::SignalLineContinuousERPMTelemetry, SETTINGS_REPEAT).await;
+    defmt::unwrap!(dshot.send_command_repeated_async(Command::SignalLineContinuousERPMTelemetry, SETTINGS_REPEAT).await);
     Timer::after(Duration::from_millis(100)).await;
 
     info!("Spinning motor and reading continuous telemetry...");
@@ -461,12 +461,12 @@ async fn main(_spawner: Spawner) {
 
     // Stop
     for _ in 0..500 {
-        dshot.send_command_async(Command::MotorStop).await;
+        defmt::unwrap!(dshot.send_command_async(Command::MotorStop).await);
         Timer::after(Duration::from_micros(500)).await;
     }
 
     info!("Disabling SignalLineTelemetryDisable (6x)...");
-    dshot.send_command_repeated_async(Command::SignalLineTelemetryDisable, SETTINGS_REPEAT).await;
+    defmt::unwrap!(dshot.send_command_repeated_async(Command::SignalLineTelemetryDisable, SETTINGS_REPEAT).await);
     Timer::after(Duration::from_millis(100)).await;
 
     info!("Phase 7 complete — verify: continuous telemetry stream received");
@@ -478,7 +478,7 @@ async fn main(_spawner: Spawner) {
     arm_esc(&mut dshot, 1000).await;
 
     info!("Sending ESCInfo command...");
-    dshot.send_command_async(Command::ESCInfo).await;
+    defmt::unwrap!(dshot.send_command_async(Command::ESCInfo).await);
     // ESC info requires >12ms wait
     Timer::after(Duration::from_millis(15)).await;
 
@@ -501,7 +501,7 @@ async fn main(_spawner: Spawner) {
     // =========================================================================
     info!("=== All phases complete ===");
     for _ in 0..2000 {
-        dshot.send_command_async(Command::MotorStop).await;
+        defmt::unwrap!(dshot.send_command_async(Command::MotorStop).await);
         Timer::after(Duration::from_micros(500)).await;
     }
 

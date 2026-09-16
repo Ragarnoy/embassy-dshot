@@ -28,11 +28,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The type gained a state-machine index parameter, `BidirDshotPio<'a, PIO, const SM: usize>`,
   so drivers for different state machines are different types and cannot share an array.
 
+- **Breaking:** every bidirectional send path is now fallible, returning
+  `Result<(), DshotError>` instead of `()` — `send_command`, `send_command_async`,
+  `send_command_repeated_async`, `throttle_idle`, `throttle_idle_async` and
+  `arm_async`. Callers that ignored the result need `unwrap!`/`?`/`let _ =`. (#7)
+- **Breaking:** a TX push that times out now reports the new `DshotError::TxBusy`
+  rather than `DshotError::TelemetryTimeout`, which conflated "the ESC did not
+  answer" with "our own state machine stopped consuming frames"
+
 ### Added
 
 - `BidirDshotProgram`, the shared per-PIO-block program handle
+- `DshotError::TxBusy` — the state machine is not draining the TX FIFO, so the
+  frame was not sent
 - `quad_engine` example — four bidirectional ESCs on one PIO block, with their
   telemetry reads overlapped via `join4` rather than awaited in turn
+
+### Fixed
+
+- The TX push in `send_and_receive_raw` used a hardcoded 10ms timeout, roughly 200x
+  a DShot300 TX+RX cycle — long enough to stall ten iterations of a 1kHz control loop
+  before reporting a fault. The bound is now derived from the configured speed
+  (one full 4-deep TX FIFO drain, ~560us at DShot300). (#7)
+- The other send paths had no timeout at all and would wait forever on a wedged state
+  machine; they are now bounded the same way. (#7)
+- `send_command` and `throttle_idle` pushed straight into the TX FIFO register, which
+  the hardware discards when full — frames could go missing with no indication. Both
+  now check for space and report `TxBusy` instead.
 
 ### Notes
 

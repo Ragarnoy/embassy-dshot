@@ -70,7 +70,7 @@ async fn main(_spawner: Spawner) {
     // Arm ESC with MotorStop (2 seconds)
     // -------------------------------------------------------------------------
     info!("Arming ESC (2s)...");
-    dshot.arm_async(Duration::from_secs(2)).await;
+    defmt::unwrap!(dshot.arm_async(Duration::from_secs(2)).await);
     info!("ESC armed");
 
     // -------------------------------------------------------------------------
@@ -78,12 +78,12 @@ async fn main(_spawner: Spawner) {
     // -------------------------------------------------------------------------
     info!("Beep test...");
     for _ in 0..10 {
-        dshot.send_command_async(Command::Beep1).await;
+        defmt::unwrap!(dshot.send_command_async(Command::Beep1).await);
         Timer::after(Duration::from_micros(1000)).await;
     }
     Timer::after(Duration::from_millis(320)).await;
     for _ in 0..200 {
-        dshot.send_command_async(Command::MotorStop).await;
+        defmt::unwrap!(dshot.send_command_async(Command::MotorStop).await);
         Timer::after(Duration::from_micros(1000)).await;
     }
     info!("Did you hear a beep? If yes, {} communication works!", speed_name);
@@ -92,7 +92,7 @@ async fn main(_spawner: Spawner) {
     // Safety countdown
     // -------------------------------------------------------------------------
     info!("Motor spin in 3 seconds — SECURE MOTOR!");
-    dshot.arm_async(Duration::from_secs(3)).await;
+    defmt::unwrap!(dshot.arm_async(Duration::from_secs(3)).await);
 
     // -------------------------------------------------------------------------
     // Ramp up
@@ -181,7 +181,7 @@ async fn main(_spawner: Spawner) {
     // -------------------------------------------------------------------------
     info!("Stopping motor...");
     for _ in 0..2000u32 {
-        dshot.send_command_async(Command::MotorStop).await;
+        defmt::unwrap!(dshot.send_command_async(Command::MotorStop).await);
         Timer::after(Duration::from_micros(500)).await;
     }
 

@@ -65,10 +65,10 @@ async fn main(_spawner: Spawner) {
     // -------------------------------------------------------------------------
     info!("Arming ESCs (2s)...");
     for _ in 0..2000u32 {
-        m1.send_command_async(Command::MotorStop).await;
-        m2.send_command_async(Command::MotorStop).await;
-        m3.send_command_async(Command::MotorStop).await;
-        m4.send_command_async(Command::MotorStop).await;
+        unwrap!(m1.send_command_async(Command::MotorStop).await);
+        unwrap!(m2.send_command_async(Command::MotorStop).await);
+        unwrap!(m3.send_command_async(Command::MotorStop).await);
+        unwrap!(m4.send_command_async(Command::MotorStop).await);
         Timer::after(Duration::from_millis(1)).await;
     }
     info!("ESCs armed");
@@ -81,18 +81,18 @@ async fn main(_spawner: Spawner) {
     // -------------------------------------------------------------------------
     info!("Beep test (M1 only)...");
     for _ in 0..10 {
-        m1.send_command_async(Command::Beep1).await;
-        m2.send_command_async(Command::MotorStop).await;
-        m3.send_command_async(Command::MotorStop).await;
-        m4.send_command_async(Command::MotorStop).await;
+        unwrap!(m1.send_command_async(Command::Beep1).await);
+        unwrap!(m2.send_command_async(Command::MotorStop).await);
+        unwrap!(m3.send_command_async(Command::MotorStop).await);
+        unwrap!(m4.send_command_async(Command::MotorStop).await);
         Timer::after(Duration::from_millis(1)).await;
     }
     Timer::after(Duration::from_millis(320)).await;
     for _ in 0..200 {
-        m1.send_command_async(Command::MotorStop).await;
-        m2.send_command_async(Command::MotorStop).await;
-        m3.send_command_async(Command::MotorStop).await;
-        m4.send_command_async(Command::MotorStop).await;
+        unwrap!(m1.send_command_async(Command::MotorStop).await);
+        unwrap!(m2.send_command_async(Command::MotorStop).await);
+        unwrap!(m3.send_command_async(Command::MotorStop).await);
+        unwrap!(m4.send_command_async(Command::MotorStop).await);
         Timer::after(Duration::from_millis(1)).await;
     }
 
@@ -168,10 +168,10 @@ async fn main(_spawner: Spawner) {
     // -------------------------------------------------------------------------
     info!("Stopping motors...");
     for _ in 0..2000u32 {
-        m1.send_command_async(Command::MotorStop).await;
-        m2.send_command_async(Command::MotorStop).await;
-        m3.send_command_async(Command::MotorStop).await;
-        m4.send_command_async(Command::MotorStop).await;
+        unwrap!(m1.send_command_async(Command::MotorStop).await);
+        unwrap!(m2.send_command_async(Command::MotorStop).await);
+        unwrap!(m3.send_command_async(Command::MotorStop).await);
+        unwrap!(m4.send_command_async(Command::MotorStop).await);
         Timer::after(Duration::from_micros(500)).await;
     }
 

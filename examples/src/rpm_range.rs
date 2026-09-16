@@ -81,18 +81,18 @@ async fn main(_spawner: Spawner) {
     // Phase 1: Arm and enable EDT
     // =========================================================================
     info!("Arming ESC (2s)...");
-    dshot.arm_async(Duration::from_secs(2)).await;
+    defmt::unwrap!(dshot.arm_async(Duration::from_secs(2)).await);
     info!("ESC armed");
 
     info!("Enabling Extended Telemetry (6x)...");
-    dshot
+    defmt::unwrap!(dshot
         .send_command_repeated_async(Command::ExtendedTelemetryEnable, SETTINGS_REPEAT)
-        .await;
+        .await);
     Timer::after(Duration::from_millis(100)).await;
 
     // Keep alive after EDT enable
     for _ in 0..200 {
-        dshot.send_command_async(Command::MotorStop).await;
+        defmt::unwrap!(dshot.send_command_async(Command::MotorStop).await);
         Timer::after(Duration::from_micros(500)).await;
     }
 
@@ -256,14 +256,14 @@ async fn main(_spawner: Spawner) {
 
     info!("Stopping motor...");
     for _ in 0..2000u32 {
-        dshot.send_command_async(Command::MotorStop).await;
+        defmt::unwrap!(dshot.send_command_async(Command::MotorStop).await);
         Timer::after(Duration::from_micros(500)).await;
     }
 
     // Disable EDT
-    dshot
+    defmt::unwrap!(dshot
         .send_command_repeated_async(Command::ExtendedTelemetryDisable, SETTINGS_REPEAT)
-        .await;
+        .await);
     Timer::after(Duration::from_millis(100)).await;
 
     // =========================================================================
