@@ -25,11 +25,11 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::{PIO0, PIO1};
-use embassy_rp::pio::InterruptHandler;
+use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
-use embassy_dshot::rp::{BidirDshotPio, DshotSpeed};
+use embassy_dshot::rp::{BidirDshotPio, BidirDshotProgram, DshotSpeed};
 use embassy_dshot::Command;
 
 bind_interrupts!(struct Irqs0 {
@@ -49,9 +49,24 @@ async fn main(_spawner: Spawner) {
     info!("Twin-engine bidirectional DShot example");
     info!("SAFETY: Ensure propellers are removed!");
 
-    // One BidirDshotPio per PIO block — each drives a single ESC
-    let mut engine1 = BidirDshotPio::new(p.PIO0, Irqs0, p.PIN_11, DshotSpeed::DShot300);
-    let mut engine2 = BidirDshotPio::new(p.PIO1, Irqs1, p.PIN_15, DshotSpeed::DShot300);
+    // One ESC per PIO block: engine1 on PIO0/PIN_11, engine2 on PIO1/PIN_15.
+    // The program is loaded once per block and runs on each block's sm0.
+    let Pio {
+        common: mut common0,
+        sm0: sm0_0,
+        ..
+    } = Pio::new(p.PIO0, Irqs0);
+    let Pio {
+        common: mut common1,
+        sm0: sm0_1,
+        ..
+    } = Pio::new(p.PIO1, Irqs1);
+    let prog0 = BidirDshotProgram::new(&mut common0);
+    let prog1 = BidirDshotProgram::new(&mut common1);
+    let mut engine1 =
+        BidirDshotPio::new(sm0_0, &mut common0, p.PIN_11, &prog0, DshotSpeed::DShot300);
+    let mut engine2 =
+        BidirDshotPio::new(sm0_1, &mut common1, p.PIN_15, &prog1, DshotSpeed::DShot300);
 
     info!("Engine 1 on PIN_11 (PIO0), Engine 2 on PIN_12 (PIO1)");
 

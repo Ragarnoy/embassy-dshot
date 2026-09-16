@@ -21,11 +21,11 @@ use defmt::info;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::PIO0;
-use embassy_rp::pio::InterruptHandler;
+use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
-use embassy_dshot::rp::{BidirDshotPio, DshotSpeed};
+use embassy_dshot::rp::{BidirDshotPio, BidirDshotProgram, DshotSpeed};
 use embassy_dshot::{Command, DshotError};
 
 bind_interrupts!(struct Irqs {
@@ -56,12 +56,13 @@ async fn main(_spawner: Spawner) {
     info!("=== Bidirectional DShot Telemetry Test: {} ===", speed_name);
     info!("SAFETY: Ensure propeller is removed!");
 
-    let mut dshot = BidirDshotPio::new(
-        p.PIO0,
-        Irqs,
-        p.PIN_11,
-        DSHOT_SPEED,
-    );
+    let Pio {
+        mut common,
+        sm0,
+        ..
+    } = Pio::new(p.PIO0, Irqs);
+    let prog = BidirDshotProgram::new(&mut common);
+    let mut dshot = BidirDshotPio::new(sm0, &mut common, p.PIN_11, &prog, DSHOT_SPEED);
 
     info!("BidirDshotPio initialized on PIN_11 ({})", speed_name);
 

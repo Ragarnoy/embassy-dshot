@@ -33,6 +33,10 @@ name = "twin_engine"
 path = "src/twin_engine.rs"
 
 [[bin]]
+name = "quad_engine"
+path = "src/quad_engine.rs"
+
+[[bin]]
 name = "bringup"
 path = "src/bringup.rs"
 
