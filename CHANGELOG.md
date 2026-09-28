@@ -17,6 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Bidirectional fire-and-forget sends (`send_command_async`, `throttle_async`,
+  `throttle_idle_async`, `send_command`, `throttle_idle`) no longer cut off the
+  previous frame when called faster than one frame cycle (#8). Every push resets the
+  state machine unless it is idle, so a second push while a frame was still on the
+  wire truncated it, and the ESC could decode the splice as a different command or
+  throttle value. Each push now first waits out the rest of the previous frame's
+  cycle (`bidir_cycle_us`: frame + turnaround + reply, 140 µs at DShot300); the
+  non-blocking variants return `TxBusy` inside that window instead.
 - `esc_command_test` example: the EDT check after `ExtendedTelemetryEnable` sent
   `read_extended_telemetry(0)`, i.e. minimum spin, while meaning to probe a stopped
   motor. It now sends `MotorStop` via `command_with_extended_telemetry`.
