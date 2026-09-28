@@ -12,7 +12,7 @@ use embassy_rp::pio::{
     ShiftDirection, StateMachine,
 };
 use embassy_rp::Peri;
-use embassy_time::{with_timeout, Duration, Timer};
+use embassy_time::{with_timeout, Duration, Instant, Timer};
 use fixed::types::extra::U8;
 use fixed::FixedU32;
 
@@ -42,20 +42,25 @@ const fn bidir_cycle_us(speed: DshotSpeed) -> u64 {
 /// Turnaround gap between the end of a frame and the start of the ESC reply.
 const TURNAROUND_US: u64 = 30;
 
+/// Microseconds still to wait before the next push, `elapsed_us` after the
+/// previous one: a frame, its turnaround and the reply take `cycle_us`, and a
+/// push inside that window would reset the state machine under the frame.
+const fn frame_gap_remaining_us(elapsed_us: u64, cycle_us: u64) -> u64 {
+    cycle_us.saturating_sub(elapsed_us)
+}
+
 /// How many full cycles to wait for TX FIFO space before declaring the state
 /// machine wedged.
 ///
 /// Note this is *not* a FIFO-depth argument. The FIFO is 4 deep in
 /// [`FifoJoin::Duplex`], but this driver cannot use that depth: every push
 /// first calls [`BidirDshotPio::sync_pc`], which resets the state machine
-/// unless it is parked at the `pull block` idle instruction — and it is only
-/// parked there when the FIFO is empty. Queueing a second frame while the
-/// first is still on the wire therefore aborts the first mid-transmission.
-/// The driver is strictly one frame at a time, and callers must pace
-/// themselves at or below one frame per [`bidir_cycle_us`].
+/// unless it is parked at the `pull block` idle instruction. The driver is
+/// strictly one frame at a time: each push first waits out the rest of one
+/// [`bidir_cycle_us`] since the previous push (see [`frame_gap_remaining_us`]),
+/// so that reset can never cut off a frame still on the wire.
 ///
-/// So in correct use `wait_push` returns immediately and this bound is a pure
-/// wedge detector. A few cycles of slack keeps it clear of scheduler jitter
+/// So `wait_push` returns immediately and this bound is a pure wedge detector. A few cycles of slack keeps it clear of scheduler jitter
 /// while staying ~20x below the 10ms it replaced.
 const TX_WEDGE_CYCLES: u64 = 4;
 
@@ -161,6 +166,10 @@ pub struct BidirDshotPio<'a, PIO: Instance, const SM: usize> {
     /// Derived from `speed`: how long to wait for TX FIFO space before
     /// reporting the state machine wedged.
     tx_timeout: Duration,
+    /// One frame + turnaround + reply at the configured speed.
+    cycle: Duration,
+    /// When the previous frame was pushed; the next waits out `cycle` from it.
+    last_push: Option<Instant>,
 }
 
 impl<'a, PIO: Instance, const SM: usize> BidirDshotPio<'a, PIO, SM> {
@@ -219,6 +228,8 @@ impl<'a, PIO: Instance, const SM: usize> BidirDshotPio<'a, PIO, SM> {
             _pin: pin,
             origin,
             tx_timeout: Duration::from_micros(bidir_cycle_us(speed) * TX_WEDGE_CYCLES),
+            cycle: Duration::from_micros(bidir_cycle_us(speed)),
+            last_push: None,
         }
     }
 
@@ -238,27 +249,47 @@ impl<'a, PIO: Instance, const SM: usize> BidirDshotPio<'a, PIO, SM> {
         }
     }
 
+    /// Microseconds until the previous frame's cycle is over (0 if it is).
+    fn frame_gap_remaining(&self) -> u64 {
+        self.last_push.map_or(0, |t| {
+            frame_gap_remaining_us(t.elapsed().as_micros(), self.cycle.as_micros())
+        })
+    }
+
     /// Push a frame, bounded by [`Self::tx_timeout`].
     ///
-    /// The TX FIFO is 4 deep, so this only ever blocks when the caller is
-    /// running ahead of the wire; timing out means the state machine stopped
-    /// consuming frames, not that the caller was merely early.
+    /// First waits out the rest of the previous frame's cycle, so the
+    /// [`Self::sync_pc`] reset can never cut that frame off on the wire (it
+    /// used to, for fire-and-forget callers pushing faster than one frame per
+    /// cycle). After that the state machine is idle, so `wait_push` returns at
+    /// once; timing out means it stopped consuming frames.
     async fn push_frame_async(&mut self, frame_raw: u16) -> Result<(), DshotError> {
+        let wait_us = self.frame_gap_remaining();
+        if wait_us > 0 {
+            Timer::after_micros(wait_us).await;
+        }
         while self.sm.rx().try_pull().is_some() {}
         self.sync_pc();
         let tx_data = u32::from(!frame_raw); // bidir DShot sends inverted
         with_timeout(self.tx_timeout, self.sm.tx().wait_push(tx_data))
             .await
-            .map_err(|_| DshotError::TxBusy)
+            .map_err(|_| DshotError::TxBusy)?;
+        self.last_push = Some(Instant::now());
+        Ok(())
     }
 
-    /// Push a frame without blocking, reporting a full TX FIFO rather than
-    /// letting the hardware discard the write.
+    /// Push a frame without blocking. Reports `TxBusy`, without touching the
+    /// state machine, while the previous frame's cycle is still running (a
+    /// push then would cut that frame off) or if the TX FIFO is full.
     fn push_frame(&mut self, frame_raw: u16) -> Result<(), DshotError> {
+        if self.frame_gap_remaining() > 0 {
+            return Err(DshotError::TxBusy);
+        }
         while self.sm.rx().try_pull().is_some() {}
         self.sync_pc();
         let tx_data = u32::from(!frame_raw); // bidir DShot sends inverted
         if self.sm.tx().try_push(tx_data) {
+            self.last_push = Some(Instant::now());
             Ok(())
         } else {
             Err(DshotError::TxBusy)
@@ -448,6 +479,10 @@ impl<'a, PIO: Instance, const SM: usize> BidirDshotPio<'a, PIO, SM> {
     /// EDT must be enabled first (`Command::ExtendedTelemetryEnable`, 6x).
     /// The ESC interleaves eRPM and EDT frames, so collect multiple samples.
     ///
+    /// `throttle` is 0-1999 above the command range: 0 is the minimum spin
+    /// value (frame 48), not a stop. For telemetry from a stopped motor use
+    /// [`Self::command_with_extended_telemetry`] with `Command::MotorStop`.
+    ///
     /// # Errors
     ///
     /// Returns `DshotError::InvalidThrottle` if throttle is out of range,
@@ -459,18 +494,45 @@ impl<'a, PIO: Instance, const SM: usize> BidirDshotPio<'a, PIO, SM> {
         let frame =
             Frame::<BidirectionalDshot>::new(throttle, true).ok_or(DshotError::InvalidThrottle)?;
         let rx_data = self.send_and_receive_raw(frame.inner()).await?;
+        Self::decode_extended(rx_data)
+    }
+
+    /// Send a `DShot` command and read the EDT response.
+    ///
+    /// The command counterpart of [`Self::read_extended_telemetry`]: with
+    /// `Command::MotorStop` it keeps eRPM and EDT (temperature, voltage, ...)
+    /// flowing from a stopped motor. Unlike [`Self::command_with_telemetry`],
+    /// the reply is decoded as a self-describing EDT frame, so an interleaved
+    /// temperature or voltage frame is not misread as eRPM.
+    ///
+    /// It also waits for the reply (or the reply timeout) before returning,
+    /// so back-to-back calls never push a frame over one still on the wire.
+    ///
+    /// # Errors
+    ///
+    /// Returns a telemetry/GCR/CRC error if the response is missing or invalid.
+    pub async fn command_with_extended_telemetry(
+        &mut self,
+        cmd: Command,
+    ) -> Result<ExtendedTelemetry, DshotError> {
+        let frame = Frame::<BidirectionalDshot>::command(cmd, true);
+        let rx_data = self.send_and_receive_raw(frame.inner()).await?;
+        Self::decode_extended(rx_data)
+    }
+
+    /// Decode a raw GCR reply as an EDT frame.
+    fn decode_extended(rx_data: u32) -> Result<ExtendedTelemetry, DshotError> {
         let raw_16 = gcr_decode(rx_data).ok_or(DshotError::GcrDecodeError)?;
         if !verify_telemetry_crc(raw_16) {
             return Err(DshotError::InvalidTelemetryCrc);
         }
-        let data_12 = raw_16 >> 4;
-        Ok(decode_extended_telemetry(data_12))
+        Ok(decode_extended_telemetry(raw_16 >> 4))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{bidir_cycle_us, bidir_pio_clock_divider, TX_WEDGE_CYCLES};
+    use super::{bidir_cycle_us, bidir_pio_clock_divider, frame_gap_remaining_us, TX_WEDGE_CYCLES};
     use crate::DshotSpeed;
 
     /// The cycle bound must cover a real frame: 16 bits out at the nominal
@@ -483,6 +545,17 @@ mod tests {
         assert_eq!(bidir_cycle_us(DshotSpeed::DShot600), 27 + 28 + 30);
         // DShot150 doubles it.
         assert_eq!(bidir_cycle_us(DshotSpeed::DShot150), 107 + 112 + 30);
+    }
+
+    /// A push inside the previous frame's cycle waits out the rest of it; one
+    /// at or after the end of the cycle goes straight away (issue #8).
+    #[test]
+    fn frame_gap_waits_out_the_previous_cycle() {
+        let cycle = bidir_cycle_us(DshotSpeed::DShot300);
+        assert_eq!(frame_gap_remaining_us(0, cycle), cycle);
+        assert_eq!(frame_gap_remaining_us(40, cycle), cycle - 40);
+        assert_eq!(frame_gap_remaining_us(cycle, cycle), 0);
+        assert_eq!(frame_gap_remaining_us(1_000, cycle), 0);
     }
 
     /// Slower speeds must get longer bounds, or the timeout fires on traffic

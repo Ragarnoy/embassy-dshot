@@ -341,7 +341,10 @@ async fn main(_spawner: Spawner) {
     // Check for version response
     info!("Checking for EDT version response...");
     for i in 0..10u32 {
-        match dshot.read_extended_telemetry(0).await {
+        match dshot
+            .command_with_extended_telemetry(Command::MotorStop)
+            .await
+        {
             Ok(telem) => {
                 info!("  [{}] {:?}", i, telem);
             }
