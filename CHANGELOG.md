@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `BidirDshotPio::command_with_extended_telemetry(cmd)`: send a command and decode
+  the reply as an EDT frame. With `Command::MotorStop` it keeps eRPM and EDT
+  (temperature, voltage, ...) flowing from a stopped motor.
+  `read_extended_telemetry(0)` could not do this: its throttle is offset past the
+  command range, so 0 is the minimum spin value (frame 48), not a stop.
+
+### Fixed
+
+- `esc_command_test` example: the EDT check after `ExtendedTelemetryEnable` sent
+  `read_extended_telemetry(0)`, i.e. minimum spin, while meaning to probe a stopped
+  motor. It now sends `MotorStop` via `command_with_extended_telemetry`.
+
 ## [0.5.0] - 2026-09-17
 
 ### Changed

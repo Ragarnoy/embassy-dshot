@@ -137,7 +137,8 @@ PIO block; one instance drives one ESC.
 - `send_command_async(&mut self, cmd: Command) -> Result<(), DshotError>`
 - `throttle_idle_async(&mut self) -> Result<(), DshotError>`
 - `arm_async(&mut self, duration: Duration) -> Result<(), DshotError>` — send MotorStop at ~1kHz for the given duration
-- `read_extended_telemetry(&mut self, throttle: u16) -> Result<ExtendedTelemetry, DshotError>`
+- `read_extended_telemetry(&mut self, throttle: u16) -> Result<ExtendedTelemetry, DshotError>` — `throttle` 0 is minimum spin, not a stop
+- `command_with_extended_telemetry(&mut self, cmd: Command) -> Result<ExtendedTelemetry, DshotError>` — e.g. `MotorStop` for telemetry from a stopped motor
 
 Every send path is fallible: each one either waits a bounded time for TX FIFO
 space or reports `DshotError::TxBusy`, rather than blocking forever or letting

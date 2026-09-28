@@ -448,6 +448,10 @@ impl<'a, PIO: Instance, const SM: usize> BidirDshotPio<'a, PIO, SM> {
     /// EDT must be enabled first (`Command::ExtendedTelemetryEnable`, 6x).
     /// The ESC interleaves eRPM and EDT frames, so collect multiple samples.
     ///
+    /// `throttle` is 0-1999 above the command range: 0 is the minimum spin
+    /// value (frame 48), not a stop. For telemetry from a stopped motor use
+    /// [`Self::command_with_extended_telemetry`] with `Command::MotorStop`.
+    ///
     /// # Errors
     ///
     /// Returns `DshotError::InvalidThrottle` if throttle is out of range,
@@ -459,12 +463,39 @@ impl<'a, PIO: Instance, const SM: usize> BidirDshotPio<'a, PIO, SM> {
         let frame =
             Frame::<BidirectionalDshot>::new(throttle, true).ok_or(DshotError::InvalidThrottle)?;
         let rx_data = self.send_and_receive_raw(frame.inner()).await?;
+        Self::decode_extended(rx_data)
+    }
+
+    /// Send a `DShot` command and read the EDT response.
+    ///
+    /// The command counterpart of [`Self::read_extended_telemetry`]: with
+    /// `Command::MotorStop` it keeps eRPM and EDT (temperature, voltage, ...)
+    /// flowing from a stopped motor. Unlike [`Self::command_with_telemetry`],
+    /// the reply is decoded as a self-describing EDT frame, so an interleaved
+    /// temperature or voltage frame is not misread as eRPM.
+    ///
+    /// It also waits for the reply (or the reply timeout) before returning,
+    /// so back-to-back calls never push a frame over one still on the wire.
+    ///
+    /// # Errors
+    ///
+    /// Returns a telemetry/GCR/CRC error if the response is missing or invalid.
+    pub async fn command_with_extended_telemetry(
+        &mut self,
+        cmd: Command,
+    ) -> Result<ExtendedTelemetry, DshotError> {
+        let frame = Frame::<BidirectionalDshot>::command(cmd, true);
+        let rx_data = self.send_and_receive_raw(frame.inner()).await?;
+        Self::decode_extended(rx_data)
+    }
+
+    /// Decode a raw GCR reply as an EDT frame.
+    fn decode_extended(rx_data: u32) -> Result<ExtendedTelemetry, DshotError> {
         let raw_16 = gcr_decode(rx_data).ok_or(DshotError::GcrDecodeError)?;
         if !verify_telemetry_crc(raw_16) {
             return Err(DshotError::InvalidTelemetryCrc);
         }
-        let data_12 = raw_16 >> 4;
-        Ok(decode_extended_telemetry(data_12))
+        Ok(decode_extended_telemetry(raw_16 >> 4))
     }
 }
 
